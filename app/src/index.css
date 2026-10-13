@@ -1,0 +1,34 @@
+@import "tailwindcss";
+
+@theme {
+  --color-cream: #fff8f0;
+  --color-poppy: #e76f51;
+  --color-peach: #f4a261;
+  --color-butter: #ffe8b6;
+  --color-sage: #2a9d8f;
+  --color-ink: #2a2a2a;
+  --color-mute: #8a7f76;
+  --font-sans: "Nunito", ui-rounded, system-ui, -apple-system, sans-serif;
+  --radius-blob: 1.5rem;
+}
+
+html, body, #root { height: 100%; }
+body {
+  background: var(--color-cream);
+  color: var(--color-ink);
+  font-family: var(--font-sans);
+  -webkit-tap-highlight-color: transparent;
+  overscroll-behavior: none;
+}
+.safe-bottom { padding-bottom: calc(env(safe-area-inset-bottom) + 0.5rem); }
+.safe-top { padding-top: env(safe-area-inset-top); }
+.checker {
+  background-color: #fff;
+  background-image:
+    linear-gradient(45deg, #f1e9df 25%, transparent 25%),
+    linear-gradient(-45deg, #f1e9df 25%, transparent 25%),
+    linear-gradient(45deg, transparent 75%, #f1e9df 75%),
+    linear-gradient(-45deg, transparent 75%, #f1e9df 75%);
+  background-size: 16px 16px;
+  background-position: 0 0, 0 8px, 8px -8px, -8px 0;
+}
