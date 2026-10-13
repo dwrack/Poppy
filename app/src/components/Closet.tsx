@@ -10,7 +10,7 @@ export function Closet({ onAdd }: { onAdd: () => void }) {
   const items = useLiveQuery(() => db.items.orderBy('createdAt').reverse().toArray(), []) ?? []
   const [cat, setCat] = useState<Category | 'all'>('all')
   const [showHidden, setShowHidden] = useState(false)
-  const [openId, setOpenId] = useState<number>()
+  const [openId, setOpenId] = useState<string>()
 
   const visible = items.filter((i) => (cat === 'all' || i.category === cat) && (showHidden || i.status === 'active'))
   const open = items.find((i) => i.id === openId)

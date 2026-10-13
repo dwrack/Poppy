@@ -18,7 +18,7 @@ export type Pattern = (typeof PATTERNS)[number]
 export type ItemStatus = 'active' | 'laundry' | 'archived'
 
 export interface Item {
-  id?: number
+  id: string
   name: string
   category: Category
   colours: Colour[]
@@ -34,6 +34,9 @@ export interface Item {
   photo: Blob
   cutout: Blob
   createdAt: number
+  updatedAt: number
+  /** 0 = needs push to cloud, 1 = in sync */
+  synced: 0 | 1
 }
 
 export const CATEGORY_LABEL: Record<Category, string> = {

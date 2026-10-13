@@ -3,8 +3,10 @@ import type { Item } from './types'
 
 export const db = new Dexie('poppyseed') as Dexie & {
   items: EntityTable<Item, 'id'>
+  tombstones: EntityTable<{ id: string }, 'id'>
 }
 
-db.version(1).stores({
-  items: '++id, category, status, favourite, createdAt',
+db.version(2).stores({
+  items: 'id, category, status, favourite, createdAt, synced',
+  tombstones: 'id',
 })

@@ -1,14 +1,14 @@
-import { db } from '../db'
+import { deleteItem, patchItem } from '../lib/sync'
 import { useObjectUrl } from '../lib/useObjectUrl'
 import { CATEGORY_LABEL, type Item } from '../types'
 
 export function ItemSheet({ item, onClose }: { item: Item; onClose: () => void }) {
   const url = useObjectUrl(item.cutout)
-  const update = (patch: Partial<Item>) => db.items.update(item.id!, patch)
+  const update = (patch: Partial<Item>) => patchItem(item.id, patch)
 
   async function remove() {
     if (!confirm('Delete this piece for good?')) return
-    await db.items.delete(item.id!)
+    await deleteItem(item.id)
     onClose()
   }
 

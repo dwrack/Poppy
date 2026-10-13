@@ -1,14 +1,28 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { AddItem } from './components/AddItem'
 import { Closet } from './components/Closet'
 import { Soon } from './components/Soon'
+import { You } from './components/You'
+import { SignIn, useSession } from './lib/auth'
+import { syncNow } from './lib/sync'
 
 type Tab = 'today' | 'closet' | 'you'
 
 export default function App() {
+  const session = useSession()
   const [tab, setTab] = useState<Tab>('closet')
   const [adding, setAdding] = useState(false)
 
+  useEffect(() => {
+    if (!session) return
+    void syncNow()
+    const onFocus = () => void syncNow()
+    window.addEventListener('focus', onFocus)
+    return () => window.removeEventListener('focus', onFocus)
+  }, [session])
+
+  if (session === undefined) return null
+  if (!session) return <SignIn />
   if (adding) return <AddItem onDone={() => setAdding(false)} />
 
   return (
@@ -16,7 +30,7 @@ export default function App() {
       <div className="flex-1">
         {tab === 'closet' && <Closet onAdd={() => setAdding(true)} />}
         {tab === 'today' && <Soon emoji="☀️" title="Today" blurb="Once your closet has a few pieces, this is where your morning outfit shows up." />}
-        {tab === 'you' && <Soon emoji="🪞" title="You" blurb="Your photos, hairstyles, measurements and style notes will live here." />}
+        {tab === 'you' && <You email={session.user.email} />}
       </div>
       <nav className="safe-bottom fixed inset-x-0 bottom-0 z-10 flex justify-around border-t border-black/5 bg-cream/95 pt-2 backdrop-blur">
         <TabButton on={tab === 'today'} onClick={() => setTab('today')} emoji="☀️" label="Today" />

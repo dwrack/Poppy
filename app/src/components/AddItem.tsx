@@ -1,11 +1,11 @@
 import { useEffect, useRef, useState } from 'react'
-import { db } from '../db'
+import { saveItem } from '../lib/sync'
 import { downscale, makeCutout, warmUp } from '../lib/cutout'
 import { useObjectUrl } from '../lib/useObjectUrl'
 import { CATEGORIES, CATEGORY_LABEL, COLOURS, PATTERNS, SEASONS, type Category, type Colour, type Item, type Pattern, type Season } from '../types'
 import { Chip, Scale } from './Chip'
 
-type Draft = Omit<Item, 'id' | 'photo' | 'cutout' | 'createdAt'>
+type Draft = Omit<Item, 'id' | 'photo' | 'cutout' | 'createdAt' | 'updatedAt' | 'synced'>
 
 const blank = (): Draft => ({
   name: '', category: 'top', colours: [], pattern: 'solid', warmth: 3, formality: 3,
@@ -49,7 +49,8 @@ export function AddItem({ onDone }: { onDone: () => void }) {
   async function save() {
     if (!photo) return
     setSaving(true)
-    await db.items.add({ ...draft, photo, cutout: cutout ?? photo, createdAt: Date.now() })
+    const now = Date.now()
+    await saveItem({ ...draft, id: crypto.randomUUID(), photo, cutout: cutout ?? photo, createdAt: now, updatedAt: now, synced: 0 })
     setSaving(false)
     onDone()
   }
