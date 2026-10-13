@@ -1,173 +1,194 @@
-# Poppy — Product Brief
+# Poppyseed Clothes — Product Brief
 
 A personal "what do I wear today?" app. One user (you), a photographed closet of
 roughly 50 to 150 items, an AI stylist you talk to in plain language, and a
-playful paper-doll preview of each outfit on a photo of you.
+preview of each outfit composited onto a real photo of you. Everything runs on
+free tiers.
 
 ## What we settled on
 
 | Decision | Answer |
 |---|---|
-| Audience | Just you. No accounts beyond a single login, no sharing. |
+| Name | Poppyseed Clothes |
+| Audience | Just you. One login, no sharing. |
 | Core moment | 7am. Open the app, get a great outfit in seconds. |
-| Item input | Photograph each item once. Background is removed automatically. |
+| Item input | Photograph each item once, laid flat. Background removed automatically. |
 | Intelligence | AI vision tags items on upload. An AI stylist picks and explains outfits. |
-| Platform | Phone web app, installed to the home screen. Camera works, no app store. |
-| Context | Weather forecast plus a mood or occasion you type ("office", "feeling bold"). No calendar. |
+| Platform | Phone web app, installed to the home screen. Works on your iPhone Pro, no App Store. |
+| Context | Weather forecast in Fahrenheit, plus a mood or occasion you type. No calendar. |
 | Primary interaction (v1) | Plain-language chat: "something warmer", "less corporate". |
 | Later interactions | Swap one piece. Swipe through 3 to 5 options. |
-| Outfit preview | Paper doll: your item cutouts composited onto a fixed photo of you. No AI image generation. |
+| Outfit preview | Your real full-length photo as the base. Item cutouts composited onto it. Switchable hairstyles. |
+| Body | Your measurements and body shape, entered once, tracked over time, fed to the stylist. |
 | Data | Cloud backend you own (free tier). Synced and backed up. |
-| Budget | Essentially free. Three tiers below. |
-| Aesthetic | Warm and playful. Poppy has a personality. |
+| Budget | Free. No paid AI. |
+| Aesthetic | Warm and playful. |
 | Your role | I build, you test and react. |
 
-## The paper-doll preview, honestly
+## The body preview, honestly
 
-What you asked for: place the clothes onto a photo of you, no AI generation.
-This works and costs nothing, but set expectations:
+What it is: your actual photo, your actual body and hair, with cutouts of your
+real clothes placed on top. What it is not: realistic draping. Clothes will
+look laid onto the photo, not worn. Realistic try-on requires paid AI image
+generation, which you've ruled out. Within that limit, here is everything
+I'll do to make it as good as possible.
 
-- **One base photo of you.** Standing, facing the camera, plain wall, fitted
-  neutral clothes. Taken once. This is the doll.
-- **One-time calibration.** You drag and resize a box for each zone: head,
-  torso, legs, feet. Takes about a minute. Every item in a category snaps to
-  its zone.
-- **Items are cutouts.** Background removal runs in your browser for free.
-  Flat-lay photos of items (laid on a bed or floor) work best.
-- **It will look like a dress-up doll**, not a photograph. No draping, no
-  perspective, sleeves won't wrap your arms. Items photographed on a hanger
-  look better than crumpled ones.
-- **Why it's still great:** instant, free, works offline, and with the playful
-  aesthetic it reads as charming rather than fake. Real AI try-on is slow,
-  costs per image, and is often uncanny. We can add it as an optional
-  "See it for real" button later if you ever want to pay for it.
+**Base photos (you shoot these once)**
+- Full length, standing, facing the camera, plain wall, even light, fitted
+  neutral clothes (a fitted tee and leggings or similar).
+- One base photo per hairstyle you want to switch between. Same spot, same
+  distance, same pose. The app lets you flip between them.
+- Optional: a second pose (three-quarter turn) later.
 
-Layering order, bottom to top: base photo, shoes, bottoms, tops, outerwear,
-accessories.
+**Zones (one-minute calibration per base photo)**
+You drag and resize a box for each: head (hats), neck (scarves), torso,
+full-body (dresses, jumpsuits), legs, feet, hand (bags). Every item snaps to
+its category's zone.
+
+**Upgrades over a basic paste-on**
+- **Per-item fit memory.** After auto-placement you can nudge, scale, or
+  rotate any item once. It remembers, so the next outfit with that item is
+  already right.
+- **Tuck rules.** Tops flagged "tucked" are cropped at the waistband and drawn
+  under bottoms. Untucked draw over.
+- **Layer order.** Base, shoes, bottoms or full-body, tops, outerwear,
+  scarves, bags, hats.
+- **Lighting match.** A cheap brightness and warmth adjustment so cutouts
+  sit closer to the base photo's light.
+- **Soft edges.** A one-pixel feather on cutouts so they stop looking
+  stickered.
+- **Clean cutouts.** Background removal runs in your browser for free. Flat
+  photos on a plain, contrasting surface, smoothed out and squared to the
+  camera, produce the best cutouts.
+
+**Later, still free, if you want it**
+A simple mesh warp that bends a flat garment around the torso silhouette.
+Better than flat, still not real cloth. Worth trying once the basics work.
+
+**What LiDAR would and wouldn't add**
+Your iPhone Pro and Mac make a native LiDAR scan possible, giving a 3D model
+of you. But flat clothing photos still can't be wrapped onto a 3D mesh without
+paid AI or 3D garment assets, so a 3D body doesn't improve the clothes. It
+also moves the app off the web and into months of native work. Parked unless
+your goals change.
+
+## Measurements and body shape
+
+Entered by tape measure once, no scan needed. The stylist reads them every
+time.
+
+- **Fields:** height, weight (optional), bust/chest, waist, hips, inseam,
+  shoulder width, arm length, neck, shoe size. Plus a body-shape pick from a
+  simple guide.
+- **Style notes:** free text about fit preferences, e.g. "I run cold, no
+  cropped tops, I like a defined waist." The single biggest lever on styling
+  quality.
+- **History:** every save is a dated entry. A small trend view shows changes
+  over time.
+- **Fit when shopping (later):** paste a brand's size chart or a product URL
+  and get a size recommendation against your numbers.
 
 ## How a morning works
 
-1. Open Poppy. It already knows today's weather for your location.
-2. Poppy greets you and shows one outfit on the doll with a one-line reason:
-   "Rainy and 12°, so the waxed jacket, and the mustard knit to fight the grey."
-3. You type or tap a quick chip: "warmer", "less effort", "I have a dinner."
-4. Poppy adjusts and explains. Repeat until happy.
-5. Tap "Wearing this." Poppy logs it so it won't repeat the outfit this week.
+1. Open the app. It already has today's forecast in °F for your location.
+2. One outfit appears on your photo with a one-line reason:
+   "Rainy and 54°, so the waxed jacket, and the mustard knit to fight the grey."
+3. Type or tap a chip: "warmer", "less effort", "I have a dinner".
+4. The stylist adjusts and explains. Repeat until happy.
+5. Tap "Wearing this." It logs the outfit so it won't repeat it this week.
 
 Target: under 10 seconds from opening the app to a first good outfit.
 
 ## How cataloging works
 
-1. Tap the camera, photograph an item on a plain surface.
+1. Tap the camera, photograph an item laid flat on a plain surface.
 2. Background removed on-device, instantly.
-3. AI vision suggests: category, colour(s), pattern, warmth, formality,
-   season. You confirm or fix with one tap each.
-4. Item appears in your closet grid. Optional: name, brand, notes, "favourite",
-   "in the wash", "archived for summer".
+3. AI vision suggests category, colours, pattern, warmth, formality, season.
+   You confirm or fix with one tap each. If the free tier is rate-limited,
+   you tag manually with the same taps.
+4. Item appears in your closet grid. Optional: name, brand, notes,
+   favourite, "in the wash", "archived for summer", tucked/untucked default.
 
 Cataloging 100 items should take under an hour total.
 
-## Three budget tiers
-
-### Tier 1: Essentially free (the target)
+## Free stack
 
 | Need | Choice | Cost |
 |---|---|---|
-| Weather | Open-Meteo, no API key | Free |
-| Background removal | Runs in the browser (`@imgly/background-removal` or similar) | Free |
-| Item tagging (vision) | Free tier of a hosted model (Google Gemini or Groq free tier) | Free, daily rate limits |
-| Stylist chat | Same free tier | Free, daily rate limits |
-| Outfit preview | Paper-doll compositing on canvas | Free |
-| Database + photo storage + login | Supabase free tier | Free |
-| Hosting | Vercel or Netlify free tier | Free |
+| Weather | Open-Meteo, no API key, Fahrenheit | Free |
+| Background removal | In-browser (`@imgly/background-removal` or similar) | Free |
+| Item tagging (vision) | Free tier of a hosted model (Google Gemini or Groq) | Free, daily limits |
+| Stylist chat | Same free tier | Free, daily limits |
+| Outfit preview | Canvas compositing | Free |
+| Database, photo storage, login | Supabase free tier | Free |
+| Hosting | Vercel free tier | Free |
 
-Trade-offs: free-tier limits change without notice. Tagging may occasionally
-fail or be slow, so manual tagging must always be a one-tap fallback. Styling
-chat quality is good but not best-in-class.
+Free-tier limits change without notice, so manual tagging always works
+without AI, and the stylist degrades to rule-based picks (weather bands,
+formality, colour harmony) if the model is unavailable. The AI provider sits
+behind one interface so a paid key can be dropped in later without a rewrite.
 
-### Tier 2: A few dollars a month
-
-Same as Tier 1, but tagging and chat use a paid small model (Claude Haiku or
-Gemini Flash). At personal usage (100 item uploads once, a handful of chat
-turns a day) this lands around $1 to $3 a month. You get reliability, no
-daily caps, and noticeably better styling reasoning.
-
-### Tier 3: Spend what makes it great
-
-Tier 2 plus: a stronger model (Claude Sonnet) for the stylist, and an optional
-on-demand AI try-on image. Image generation runs roughly $0.04 to $0.10 per
-image depending on provider. Used a couple of times a day this is roughly
-$10 to $25 a month.
-
-I'll build Tier 1 with a single config switch so moving to Tier 2 is a key
-change, not a rewrite.
-
-## Recommended stack
-
-- **Frontend:** React with Vite, installable PWA, mobile-first. Tailwind for
-  styling. Canvas for the doll.
-- **Backend:** Supabase (Postgres, Storage, Auth). One user row, you.
-- **AI calls:** a thin serverless function so API keys never ship to the
-  browser. Provider behind an interface so it can be swapped.
-- **Weather:** Open-Meteo, with location saved once.
-- **Hosting:** Vercel free tier.
+- **Frontend:** React with Vite, installable PWA, mobile-first, Tailwind,
+  Canvas for compositing.
+- **Backend:** Supabase (Postgres, Storage, Auth).
+- **AI calls:** one thin serverless function so keys never ship to the browser.
 
 ## Data model (first pass)
 
 - `items`: id, photo_url, cutout_url, category, subcategory, colours[],
   pattern, warmth (1 to 5), formality (1 to 5), seasons[], brand, name, notes,
-  status (active / laundry / archived), favourite, created_at
+  status (active / laundry / archived), favourite, tuck_default,
+  fit_adjust { x, y, scale, rotation } per base photo, created_at
+- `base_photos`: id, url, label (hairstyle name), zones { head, neck, torso,
+  full_body, legs, feet, hand } as x, y, w, h, is_default
+- `measurements`: id, taken_on, height, weight, bust, waist, hips, inseam,
+  shoulder, arm, neck, shoe, body_shape
 - `outfits`: id, item_ids[], worn_on, occasion, mood, weather_snapshot,
-  rating, poppy_reason
-- `doll`: base_photo_url, zones { head, torso, legs, feet } as x, y, w, h
-- `settings`: location, units, style_notes (free text you write about your
-  taste; fed to the stylist every time)
+  rating, reason
+- `settings`: location, units (°F), style_notes
 
-## What makes it amazing (not just functional)
+## What makes it amazing
 
-- **Poppy explains itself.** Every pick has a one-line "why". That's what
-  builds trust and teaches you about your own closet.
-- **Style notes.** A free-text box where you write "I hate tucking shirts,
-  I run cold, I like high contrast." The stylist reads it every time. This
-  does more for quality than any model upgrade.
-- **Laundry toggle.** One tap marks an item as in the wash. Poppy never
-  suggests what you can't wear.
-- **Quick chips.** "Warmer", "Dressier", "Lazier", "Surprise me" under the
-  chat box so mornings need zero typing.
-- **Wear log.** Light history so Poppy avoids repeats and can later tell you
-  "you haven't worn the green shirt in two months."
+- **It explains itself.** Every pick has a one-line why.
+- **Style notes plus measurements.** The stylist knows your body and your
+  rules. This beats any model upgrade.
+- **Laundry toggle.** Never suggests what's in the wash.
+- **Quick chips.** "Warmer", "Dressier", "Lazier", "Surprise me". Zero typing
+  on autopilot mornings.
+- **Hairstyle switch.** Tap to see the outfit with today's hair.
+- **Fit memory.** Fix an item's placement once, it stays fixed.
+- **Wear log.** Avoids repeats, and later: "you haven't worn the green shirt
+  in two months."
 - **Personality.** Warm, short, a little cheeky. Never a wall of text.
-- **Speed.** First outfit appears before you've finished your first sip of
-  coffee. Weather fetch and first pick happen on load.
+- **Speed.** First outfit before your first sip of coffee.
 
 ## Build plan
 
-**Milestone 1, closet (first few days)**
-Login, photograph item, background removal, AI tag suggestion, closet grid,
-laundry and archive toggles.
+**Milestone 1, closet**
+Login, photograph item, background removal, AI tag suggestion with manual
+fallback, closet grid, laundry and archive toggles.
 
-**Milestone 2, the doll**
-Base photo upload, zone calibration, composite an outfit, layering order.
+**Milestone 2, you**
+Base photo upload, zone calibration, hairstyle variants, measurements entry
+and history, style notes.
 
-**Milestone 3, the morning**
-Weather, mood box with chips, first pick on load, chat refinement, "Wearing
-this" log, no-repeat rule.
+**Milestone 3, the preview**
+Composite an outfit onto a base photo, layer order, tuck rules, per-item fit
+adjustment, lighting match.
 
-**Milestone 4, polish**
-Poppy's personality and visual identity, animations, install prompt, offline
-closet browsing.
+**Milestone 4, the morning**
+Weather in °F, mood box with chips, first pick on load, chat refinement with
+rule-based fallback, "Wearing this" log, no-repeat rule.
+
+**Milestone 5, polish**
+Visual identity, animations, install prompt, offline closet browsing.
 
 **Later**
-Swap-one-piece, swipe mode, packing lists, optional paid try-on image.
+Swap-one-piece, swipe mode, mesh warp for garments, size-chart fit checker,
+packing lists.
 
-## Open questions for you
+## What I need from you to start Milestone 1
 
-1. Do you have, or can you take, a full-length standing photo against a plain
-   wall? That's the doll.
-2. Are your clothes mostly photographable flat or on a hanger? Hanger shots
-   compose better onto the doll.
-3. Any items that break the four zones: dresses, jumpsuits, bags, hats, scarves?
-   Dresses need a torso-plus-legs zone. Tell me what you own.
-4. Metric or imperial for temperature?
-5. Is the name Poppy final, and is Poppy a character (a face, a voice) or just
-   the app name?
+Nothing. Login and the closet need no photos of you. For Milestone 2 I'll
+need your base photos: full length, plain wall, even light, fitted neutral
+clothes, one per hairstyle, all shot from the same spot.
