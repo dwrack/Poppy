@@ -43,3 +43,33 @@ export const CATEGORY_LABEL: Record<Category, string> = {
   top: 'Top', bottom: 'Bottom', dress: 'Dress', outerwear: 'Jacket', shoes: 'Shoes',
   bag: 'Bag', hat: 'Hat', scarf: 'Scarf', accessory: 'Accessory',
 }
+
+export interface Profile {
+  id: 'me'
+  heightIn?: number
+  weightLb?: number
+  hair?: string
+  eyes?: string
+  sizeTop?: string
+  sizeBottom?: string
+  sizeDress?: string
+  sizeShoe?: string
+  styleNotes?: string
+  updatedAt: number
+  synced: 0 | 1
+}
+
+export const MEASURE_FIELDS = ['bust', 'waist', 'hips', 'inseam', 'shoulder'] as const
+export type MeasureField = (typeof MEASURE_FIELDS)[number]
+
+export interface Measurement {
+  id: string
+  takenOn: string // YYYY-MM-DD
+  bust?: number
+  waist?: number
+  hips?: number
+  inseam?: number
+  shoulder?: number
+  createdAt: number
+  synced: 0 | 1
+}
