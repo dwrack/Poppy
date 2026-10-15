@@ -24,7 +24,7 @@ export function SignIn() {
     setBusy(true); setMsg(undefined)
     const fn = mode === 'in'
       ? supabase.auth.signInWithPassword({ email, password })
-      : supabase.auth.signUp({ email, password })
+      : supabase.auth.signUp({ email, password, options: { emailRedirectTo: window.location.origin + import.meta.env.BASE_URL } })
     const { data, error } = await fn
     setBusy(false)
     if (error) { setMsg(error.message); return }
@@ -33,7 +33,7 @@ export function SignIn() {
 
   return (
     <div className="safe-top flex min-h-full flex-col items-center justify-center gap-6 px-8">
-      <img src="/icons/icon.svg" alt="" className="h-24 w-24 rounded-3xl shadow-lg" />
+      <img src={`${import.meta.env.BASE_URL}icons/icon.svg`} alt="" className="h-24 w-24 rounded-3xl shadow-lg" />
       <div className="text-center">
         <h1 className="text-3xl font-extrabold">Poppyseed Clothes</h1>
         <p className="text-mute">{mode === 'in' ? 'Welcome back.' : 'Make your account.'}</p>
