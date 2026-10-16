@@ -1,0 +1,1 @@
+{"name":"Poppyseed Clothes","short_name":"Poppyseed","description":"What do I wear today?","start_url":"/Poppy/","display":"standalone","background_color":"#fff8f0","theme_color":"#f4a261","lang":"en","scope":"/Poppy/","orientation":"portrait","icons":[{"src":"icons/icon.svg","sizes":"any","type":"image/svg+xml","purpose":"any maskable"}]}
