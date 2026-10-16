@@ -23,6 +23,7 @@ create table if not exists items (
 
 alter table items enable row level security;
 
+drop policy if exists "own items" on items;
 create policy "own items" on items
   for all using (auth.uid() = user_id) with check (auth.uid() = user_id);
 
@@ -30,6 +31,7 @@ insert into storage.buckets (id, name, public)
 values ('closet', 'closet', false)
 on conflict (id) do nothing;
 
+drop policy if exists "own closet files" on storage.objects;
 create policy "own closet files" on storage.objects
   for all using (bucket_id = 'closet' and auth.uid()::text = (storage.foldername(name))[1])
   with check (bucket_id = 'closet' and auth.uid()::text = (storage.foldername(name))[1]);
@@ -49,6 +51,7 @@ create table if not exists profile (
   updated_at timestamptz not null default now()
 );
 alter table profile enable row level security;
+drop policy if exists "own profile" on profile;
 create policy "own profile" on profile
   for all using (auth.uid() = user_id) with check (auth.uid() = user_id);
 
@@ -65,5 +68,6 @@ create table if not exists measurements (
   created_at timestamptz not null default now()
 );
 alter table measurements enable row level security;
+drop policy if exists "own measurements" on measurements;
 create policy "own measurements" on measurements
   for all using (auth.uid() = user_id) with check (auth.uid() = user_id);
