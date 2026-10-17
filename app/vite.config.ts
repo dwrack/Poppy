@@ -26,6 +26,8 @@ export default defineConfig({
       workbox: {
         maximumFileSizeToCacheInBytes: 6 * 1024 * 1024,
         globPatterns: ['**/*.{js,css,html,svg}'],
+        // Leave the version 2 preview alone; it lives under /Poppy/v2/.
+        navigateFallbackDenylist: [/\/v2\//],
       },
     }),
   ],
