@@ -1,0 +1,1 @@
+if('serviceWorker' in navigator) {window.addEventListener('load', () => {navigator.serviceWorker.register('/Poppy/v2/sw.js', { scope: '/Poppy/v2/' })})}
