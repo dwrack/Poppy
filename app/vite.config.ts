@@ -12,8 +12,8 @@ export default defineConfig({
       registerType: 'autoUpdate',
       includeAssets: ['icons/*.svg'],
       manifest: {
-        name: 'Poppyseed Clothes',
-        short_name: 'Poppyseed',
+        name: 'Poppyseed Clothes 2.0',
+        short_name: 'Poppyseed 2',
         description: 'What do I wear today?',
         theme_color: '#f4a261',
         background_color: '#fff8f0',

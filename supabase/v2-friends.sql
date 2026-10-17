@@ -188,3 +188,12 @@ do $$ begin
   begin alter publication supabase_realtime add table borrow_requests; exception when others then null; end;
   begin alter publication supabase_realtime add table group_members; exception when others then null; end;
 end $$;
+
+-- Item names and photos for pieces in my borrow requests (either side).
+create or replace function borrow_item_cards(ids uuid[])
+returns table (id uuid, name text, category text, cutout_path text, user_id uuid)
+language sql stable security definer set search_path = public as $$
+  select i.id, i.name, i.category, i.cutout_path, i.user_id from items i
+  where i.id = any(ids) and exists (
+    select 1 from borrow_requests b where b.item_id = i.id and auth.uid() in (b.owner_id, b.borrower_id))
+$$;

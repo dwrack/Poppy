@@ -1,8 +1,10 @@
 name: Deploy version 2 preview to GitHub Pages (/v2/)
 
-# Manual only until version 2 has something to show. Version 1 deploys
-# from the v1 branch to the site root and is never touched from here.
+# Version 1 deploys from the v1 branch to the site root and is never
+# touched from here.
 on:
+  push:
+    branches: [master]
   workflow_dispatch:
 
 permissions:
