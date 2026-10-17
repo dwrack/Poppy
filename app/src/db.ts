@@ -1,7 +1,7 @@
 import Dexie, { type EntityTable } from 'dexie'
 import type { Item, Measurement, Profile } from './types'
 
-export const db = new Dexie('poppyseed') as Dexie & {
+export const db = new Dexie('poppyseed-v2') as Dexie & {
   items: EntityTable<Item, 'id'>
   tombstones: EntityTable<{ id: string }, 'id'>
   profile: EntityTable<Profile, 'id'>
