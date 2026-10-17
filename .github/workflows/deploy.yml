@@ -1,8 +1,8 @@
-name: Deploy app to GitHub Pages
+name: Deploy version 1 (frozen) to GitHub Pages
 
 on:
   push:
-    branches: [master]
+    branches: [v1]
   workflow_dispatch:
 
 permissions:
@@ -34,4 +34,4 @@ jobs:
           github_token: ${{ secrets.GITHUB_TOKEN }}
           publish_dir: app/dist
           publish_branch: gh-pages
-          force_orphan: true
+          keep_files: true
