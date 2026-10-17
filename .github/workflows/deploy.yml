@@ -1,8 +1,8 @@
-name: Deploy app to GitHub Pages
+name: Deploy version 2 preview to GitHub Pages (/v2/)
 
+# Manual only until version 2 has something to show. Version 1 deploys
+# from the v1 branch to the site root and is never touched from here.
 on:
-  push:
-    branches: [master]
   workflow_dispatch:
 
 permissions:
@@ -27,11 +27,12 @@ jobs:
       - run: npm run build
         working-directory: app
         env:
-          BASE_PATH: /Poppy/
+          BASE_PATH: /Poppy/v2/
       - run: touch app/dist/.nojekyll && cp app/dist/index.html app/dist/404.html
       - uses: peaceiris/actions-gh-pages@v4
         with:
           github_token: ${{ secrets.GITHUB_TOKEN }}
           publish_dir: app/dist
           publish_branch: gh-pages
-          force_orphan: true
+          destination_dir: v2
+          keep_files: true
