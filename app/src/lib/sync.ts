@@ -7,7 +7,7 @@ type Row = {
   id: string; name: string; category: string; colours: string[]; pattern: string
   warmth: number; formality: number; seasons: string[]; brand: string | null; notes: string | null
   status: string; favourite: boolean; tucked: boolean; photo_path: string; cutout_path: string
-  fabric: string | null; fit: string | null; feel: string | null; links: Item['links'] | null
+  fabric: string | null; fit: string | null; feel: string | null; links: Item['links'] | null; size: string | null
   created_at: string; updated_at: string
 }
 
@@ -28,7 +28,7 @@ function toRow(item: Item, userId: string): Omit<Row, 'created_at' | 'updated_at
     warmth: item.warmth, formality: item.formality, seasons: item.seasons, brand: item.brand ?? null,
     notes: item.notes ?? null, status: item.status, favourite: item.favourite, tucked: item.tucked,
     photo_path: p.photo, cutout_path: p.cutout,
-    fabric: item.fabric ?? null, fit: item.fit ?? null, feel: item.feel ?? null, links: item.links ?? [],
+    fabric: item.fabric ?? null, fit: item.fit ?? null, feel: item.feel ?? null, links: item.links ?? [], size: item.size ?? null,
     created_at: new Date(item.createdAt).toISOString(), updated_at: new Date(item.updatedAt).toISOString(),
   }
 }
@@ -107,7 +107,7 @@ export async function pullAll() {
       pattern: row.pattern as Item['pattern'], warmth: row.warmth as Item['warmth'], formality: row.formality as Item['formality'],
       seasons: row.seasons as Item['seasons'], brand: row.brand ?? undefined, notes: row.notes ?? undefined,
       status: row.status as Item['status'], favourite: row.favourite, tucked: row.tucked,
-      fabric: row.fabric ?? undefined, fit: row.fit ?? undefined, feel: row.feel ?? undefined, links: row.links ?? [],
+      fabric: row.fabric ?? undefined, fit: row.fit ?? undefined, feel: row.feel ?? undefined, links: row.links ?? [], size: row.size ?? undefined,
       photo: photo.data, cutout: cutout.data,
       createdAt: Date.parse(row.created_at), updatedAt: Date.parse(row.updated_at), synced: 1,
     })

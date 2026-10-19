@@ -29,6 +29,7 @@ export interface Item {
   formality: 1 | 2 | 3 | 4 | 5
   seasons: Season[]
   brand?: string
+  size?: string
   notes?: string
   status: ItemStatus
   favourite: boolean

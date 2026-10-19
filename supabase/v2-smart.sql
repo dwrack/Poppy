@@ -15,3 +15,4 @@ create table if not exists me_photos (
 alter table me_photos enable row level security;
 drop policy if exists "own me photos" on me_photos;
 create policy "own me photos" on me_photos for all using (auth.uid() = user_id) with check (auth.uid() = user_id);
+alter table items add column if not exists size text;

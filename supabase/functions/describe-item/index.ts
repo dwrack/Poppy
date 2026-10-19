@@ -14,7 +14,7 @@ const SEASONS = ["spring", "summer", "fall", "winter"];
 const describeSchema = {
   type: "object",
   additionalProperties: false,
-  required: ["name", "category", "colours", "pattern", "fabric", "fit", "warmth", "formality", "seasons", "feel", "search_query"],
+  required: ["name", "category", "colours", "pattern", "fabric", "fit", "warmth", "formality", "seasons", "feel", "search_query", "brand", "size"],
   properties: {
     name: { type: "string", description: "Short friendly name, 2 to 4 words, e.g. 'mustard ribbed knit'" },
     category: { type: "string", enum: CATEGORIES },
@@ -26,7 +26,9 @@ const describeSchema = {
     formality: { type: "integer", description: "1 = lounging, 5 = black tie" },
     seasons: { type: "array", items: { type: "string", enum: SEASONS } },
     feel: { type: "string", description: "One short line on the vibe, e.g. 'soft, slouchy, weekend coffee run'" },
-    search_query: { type: "string", description: "A shopping search query that would find this exact piece or close matches" },
+    search_query: { type: "string", description: "A shopping search query that would find this exact piece or close matches. Include the brand if known." },
+    brand: { type: "string", description: "Brand name read from the tag, or empty string if unknown" },
+    size: { type: "string", description: "Size read from the tag exactly as printed, e.g. 'XS', '14', '26x30', or empty string if unknown" },
   },
 };
 
@@ -72,6 +74,7 @@ Deno.serve(async (req) => {
 
     const body = await req.json();
     const image = body.image as { media_type: string; data: string } | undefined;
+    const tag = body.tag as { media_type: string; data: string } | undefined;
 
     if (body.mode === "describe") {
       if (!image) return json({ error: "No image" }, 400);
@@ -79,11 +82,12 @@ Deno.serve(async (req) => {
         model: MODEL,
         max_tokens: 2000,
         output_config: { effort: "low", format: { type: "json_schema", schema: describeSchema } },
-        system: "You tag clothes for a teen's personal wardrobe app. Be concrete and friendly. The photo is one item laid flat with the background removed.",
+        system: "You tag clothes for a teen's personal wardrobe app. Be concrete and friendly. The first photo is one item laid flat with the background removed. If a second photo of the care or brand tag is included, read the brand, size and fabric content from it and prefer those over guesses.",
         messages: [{
           role: "user",
           content: [
             { type: "image", source: { type: "base64", media_type: image.media_type, data: image.data } },
+            ...(tag ? [{ type: "image" as const, source: { type: "base64" as const, media_type: tag.media_type as "image/jpeg", data: tag.data } }, { type: "text" as const, text: "The second photo is the tag." }] : []),
             { type: "text", text: "Describe this piece of clothing." },
           ],
         }],

@@ -4,6 +4,7 @@ import type { Category, Colour, Pattern, Season, ShopLink } from '../types'
 export interface Description {
   name: string; category: Category; colours: Colour[]; pattern: Pattern; fabric: string; fit: string
   warmth: 1 | 2 | 3 | 4 | 5; formality: 1 | 2 | 3 | 4 | 5; seasons: Season[]; feel: string; search_query: string
+  brand: string; size: string
 }
 
 async function toBase64(blob: Blob, maxSide = 768): Promise<{ media_type: string; data: string }> {
@@ -25,8 +26,8 @@ async function call<T>(body: Record<string, unknown>): Promise<T> {
   return data as T
 }
 
-export async function describePhoto(cutout: Blob): Promise<Description> {
-  return call<Description>({ mode: 'describe', image: await toBase64(cutout) })
+export async function describePhoto(cutout: Blob, tag?: Blob): Promise<Description> {
+  return call<Description>({ mode: 'describe', image: await toBase64(cutout), tag: tag ? await toBase64(tag, 1024) : undefined })
 }
 
 export async function findOnline(query: string, cutout?: Blob): Promise<ShopLink[]> {

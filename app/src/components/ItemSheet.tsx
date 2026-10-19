@@ -8,7 +8,7 @@ export function ItemSheet({ item, onClose }: { item: Item; onClose: () => void }
   const url = useObjectUrl(item.cutout)
   const update = (patch: Partial<Item>) => patchItem(item.id, patch)
   const [finding, setFinding] = useState<'idle' | 'busy' | 'none' | 'error'>('idle')
-  const query = item.notes?.match(/search: ([^·]+)/)?.[1]?.trim() || [item.colours.join(' '), item.fabric, item.fit, item.name || item.category].filter(Boolean).join(' ')
+  const query = item.notes?.match(/search: ([^·]+)/)?.[1]?.trim() || [item.brand, item.colours.join(' '), item.fabric, item.fit, item.name || item.category].filter(Boolean).join(' ')
 
   async function openFree(kind: 'lens' | 'shop') {
     const links = await freeSearchLinks(item.id, query)
@@ -45,6 +45,7 @@ export function ItemSheet({ item, onClose }: { item: Item; onClose: () => void }
               {CATEGORY_LABEL[item.category]} · {item.colours.join(', ') || 'no colour'} · {item.pattern}
             </p>
             <p className="mt-1 text-sm text-mute">warmth {item.warmth}/5 · dressy {item.formality}/5</p>
+            {(item.brand || item.size) && <p className="mt-1 text-sm font-semibold">{[item.brand, item.size && `size ${item.size}`].filter(Boolean).join(' · ')}</p>}
             {(item.fabric || item.fit) && <p className="mt-1 text-sm text-mute">{[item.fabric, item.fit].filter(Boolean).join(' · ')}</p>}
             {item.feel && <p className="mt-1 text-sm italic">“{item.feel}”</p>}
             {item.notes && <p className="mt-1 text-sm">{item.notes}</p>}

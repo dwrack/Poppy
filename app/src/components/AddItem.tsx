@@ -15,6 +15,8 @@ const blank = (): Draft => ({
 
 export function AddItem({ onDone }: { onDone: () => void }) {
   const fileRef = useRef<HTMLInputElement>(null)
+  const tagRef = useRef<HTMLInputElement>(null)
+  const [tagPhoto, setTagPhoto] = useState<Blob>()
   const [photo, setPhoto] = useState<Blob>()
   const [cutout, setCutout] = useState<Blob>()
   const [progress, setProgress] = useState<number | null>(null)
@@ -46,16 +48,24 @@ export function AddItem({ onDone }: { onDone: () => void }) {
     }
   }
 
-  async function autoTag(img: Blob) {
+  async function onTag(file?: File) {
+    if (!file) return
+    const small = await downscale(file, 1024)
+    setTagPhoto(small)
+    if (cutout ?? photo) void autoTag((cutout ?? photo)!, small)
+  }
+
+  async function autoTag(img: Blob, tag?: Blob) {
     setThinking('busy')
     try {
-      const d = await describePhoto(img)
+      const d = await describePhoto(img, tag ?? tagPhoto)
       setDraft((cur) => ({
         ...cur,
         name: cur.name || d.name,
         category: d.category, colours: d.colours, pattern: d.pattern,
         warmth: d.warmth, formality: d.formality, seasons: d.seasons.length ? d.seasons : cur.seasons,
         fabric: d.fabric, fit: d.fit, feel: d.feel,
+        brand: d.brand || cur.brand, size: d.size || cur.size,
       }))
       setSearchQuery(d.search_query)
       setThinking('done')
@@ -128,12 +138,22 @@ export function AddItem({ onDone }: { onDone: () => void }) {
         {photo && progress === null && (
           <p className="text-center text-sm text-mute">Tap the photo to retake.</p>
         )}
+        {photo && (
+          <>
+            <input ref={tagRef} type="file" accept="image/*" capture="environment" className="hidden" onChange={(e) => onTag(e.target.files?.[0])} />
+            <button type="button" onClick={() => tagRef.current?.click()} className={'mx-auto flex items-center gap-2 rounded-full px-4 py-2 text-sm font-bold ring-1 ring-black/10 ' + (tagPhoto ? 'bg-sage/15 text-sage' : 'bg-white')}>
+              🏷️ {tagPhoto ? 'Tag added · retake' : 'Snap the tag too (optional)'}
+            </button>
+            {!tagPhoto && <p className="-mt-3 text-center text-xs text-mute">Brand, size and fabric get read off it.</p>}
+          </>
+        )}
         {thinking === 'busy' && <p className="animate-pulse text-center text-sm font-semibold text-sage">✨ Poppy is looking at it…</p>}
         {thinking === 'done' && (
           <div className="rounded-2xl bg-sage/10 p-3 text-sm">
             <p className="font-bold text-sage">✨ Here's what I see. Fix anything that's off.</p>
             {draft.feel && <p className="mt-1 italic">“{draft.feel}”</p>}
             {(draft.fabric || draft.fit) && <p className="mt-1 text-mute">{[draft.fabric, draft.fit].filter(Boolean).join(' · ')}</p>}
+            {(draft.brand || draft.size) && <p className="mt-1 font-semibold">{[draft.brand, draft.size && `size ${draft.size}`].filter(Boolean).join(' · ')}</p>}
           </div>
         )}
         {thinking === 'failed' && <p className="text-center text-sm text-mute">Couldn't auto-tag this one. Tap the details in below.</p>}
@@ -206,8 +226,19 @@ export function AddItem({ onDone }: { onDone: () => void }) {
           <Toggle on={draft.favourite} onChange={(v) => set({ favourite: v })} />
         </section>
 
+        <section className="grid grid-cols-2 gap-3">
+          <div>
+            <Label>Brand</Label>
+            <input value={draft.brand ?? ''} onChange={(e) => set({ brand: e.target.value })} placeholder="e.g. Zara" className="w-full rounded-2xl bg-white px-4 py-3 ring-1 ring-black/10 outline-none focus:ring-peach" />
+          </div>
+          <div>
+            <Label>Size</Label>
+            <input value={draft.size ?? ''} onChange={(e) => set({ size: e.target.value })} placeholder="e.g. XS" className="w-full rounded-2xl bg-white px-4 py-3 ring-1 ring-black/10 outline-none focus:ring-peach" />
+          </div>
+        </section>
+
         <section>
-          <Label>Brand / notes <span className="font-normal text-mute">(optional)</span></Label>
+          <Label>Notes <span className="font-normal text-mute">(optional)</span></Label>
           <input
             value={draft.notes ?? ''}
             onChange={(e) => set({ notes: e.target.value })}
