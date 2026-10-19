@@ -18,12 +18,12 @@ const describeSchema = {
   properties: {
     name: { type: "string", description: "Short friendly name, 2 to 4 words, e.g. 'mustard ribbed knit'" },
     category: { type: "string", enum: CATEGORIES },
-    colours: { type: "array", items: { type: "string", enum: COLOURS }, maxItems: 3 },
+    colours: { type: "array", items: { type: "string", enum: COLOURS } },
     pattern: { type: "string", enum: PATTERNS },
     fabric: { type: "string", description: "Best guess at the fabric, e.g. 'cotton jersey', 'denim', 'satin'" },
     fit: { type: "string", description: "Cut and fit, e.g. 'cropped boxy', 'high-rise straight', 'oversized'" },
-    warmth: { type: "integer", minimum: 1, maximum: 5, description: "1 = hot day, 5 = deep winter" },
-    formality: { type: "integer", minimum: 1, maximum: 5, description: "1 = lounging, 5 = black tie" },
+    warmth: { type: "integer", description: "1 = hot day, 5 = deep winter" },
+    formality: { type: "integer", description: "1 = lounging, 5 = black tie" },
     seasons: { type: "array", items: { type: "string", enum: SEASONS } },
     feel: { type: "string", description: "One short line on the vibe, e.g. 'soft, slouchy, weekend coffee run'" },
     search_query: { type: "string", description: "A shopping search query that would find this exact piece or close matches" },
@@ -37,7 +37,6 @@ const findSchema = {
   properties: {
     matches: {
       type: "array",
-      maxItems: 5,
       items: {
         type: "object",
         additionalProperties: false,
@@ -99,12 +98,15 @@ Deno.serve(async (req) => {
       if (!query) return json({ error: "No query" }, 400);
       const content: Anthropic.ContentBlockParam[] = [];
       if (image) content.push({ type: "image", source: { type: "base64", media_type: image.media_type, data: image.data } });
-      content.push({ type: "text", text: `Find where to buy this piece of clothing, or the closest matches, in US stores. Search query to start from: "${query}". Return up to 5 real product pages with prices. Prefer exact matches, then close dupes at lower prices.` });
+      content.push({ type: "text", text: `Find where to buy this piece of clothing, or the closest matches, in US stores. Search query to start from: "${query}". Return up to 5 real product pages. Open each product page and read the current price; always fill in price (e.g. "$28"). Prefer exact matches, then close dupes at lower prices.` });
       const res = await anthropic.messages.create({
         model: MODEL,
         max_tokens: 4000,
         output_config: { effort: "medium", format: { type: "json_schema", schema: findSchema } },
-        tools: [{ type: "web_search_20260209", name: "web_search", max_uses: 6, user_location: { type: "approximate", country: "US" } }],
+        tools: [
+          { type: "web_search_20260209", name: "web_search", max_uses: 6, user_location: { type: "approximate", country: "US" } },
+          { type: "web_fetch_20260209", name: "web_fetch", max_uses: 6 },
+        ],
         messages: [{ role: "user", content }],
       });
       if (res.stop_reason === "refusal") return json({ matches: [] });
