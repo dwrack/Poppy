@@ -1,10 +1,23 @@
+import { useState } from 'react'
 import { deleteItem, patchItem } from '../lib/sync'
+import { findOnline } from '../lib/ai'
 import { useObjectUrl } from '../lib/useObjectUrl'
 import { CATEGORY_LABEL, type Item } from '../types'
 
 export function ItemSheet({ item, onClose }: { item: Item; onClose: () => void }) {
   const url = useObjectUrl(item.cutout)
   const update = (patch: Partial<Item>) => patchItem(item.id, patch)
+  const [finding, setFinding] = useState<'idle' | 'busy' | 'none' | 'error'>('idle')
+  const query = item.notes?.match(/search: ([^·]+)/)?.[1]?.trim() || [item.colours.join(' '), item.fabric, item.fit, item.name || item.category].filter(Boolean).join(' ')
+
+  async function find() {
+    setFinding('busy')
+    try {
+      const links = await findOnline(query, item.cutout)
+      await update({ links })
+      setFinding(links.length ? 'idle' : 'none')
+    } catch { setFinding('error') }
+  }
 
   async function remove() {
     if (!confirm('Delete this piece for good?')) return
@@ -26,11 +39,31 @@ export function ItemSheet({ item, onClose }: { item: Item; onClose: () => void }
               {CATEGORY_LABEL[item.category]} · {item.colours.join(', ') || 'no colour'} · {item.pattern}
             </p>
             <p className="mt-1 text-sm text-mute">warmth {item.warmth}/5 · dressy {item.formality}/5</p>
+            {(item.fabric || item.fit) && <p className="mt-1 text-sm text-mute">{[item.fabric, item.fit].filter(Boolean).join(' · ')}</p>}
+            {item.feel && <p className="mt-1 text-sm italic">“{item.feel}”</p>}
             {item.notes && <p className="mt-1 text-sm">{item.notes}</p>}
           </div>
         </div>
 
-        <div className="mt-5 grid grid-cols-2 gap-2">
+        <section className="mt-4">
+          {item.links && item.links.length > 0 ? (
+            <div className="space-y-1.5">
+              <div className="flex items-center justify-between"><span className="text-sm font-bold">🛍️ Found online</span><button onClick={find} disabled={finding === 'busy'} className="text-xs font-semibold text-mute">{finding === 'busy' ? 'Searching…' : 'Search again'}</button></div>
+              {item.links.map((l, i) => (
+                <a key={i} href={l.url} target="_blank" rel="noreferrer" className="flex items-center justify-between gap-2 rounded-xl bg-white px-3 py-2 ring-1 ring-black/5">
+                  <span className="min-w-0"><span className="block truncate text-sm font-semibold">{l.title}</span><span className="text-xs text-mute">{l.store}{l.exact ? ' · exact match' : ' · similar'}</span></span>
+                  <span className="shrink-0 text-sm font-bold text-sage">{l.price}</span>
+                </a>
+              ))}
+            </div>
+          ) : (
+            <button onClick={find} disabled={finding === 'busy'} className="w-full rounded-2xl bg-white py-3 text-sm font-bold ring-1 ring-black/10 disabled:opacity-50">
+              {finding === 'busy' ? '🔎 Searching the internet…' : finding === 'none' ? 'Nothing close found. Try again?' : finding === 'error' ? 'Search failed. Try again?' : '🔎 Find it online'}
+            </button>
+          )}
+        </section>
+
+        <div className="mt-4 grid grid-cols-2 gap-2">
           <Action on={item.status === 'laundry'} onClick={() => update({ status: item.status === 'laundry' ? 'active' : 'laundry' })}>
             🧺 {item.status === 'laundry' ? 'Clean again' : 'In the wash'}
           </Action>

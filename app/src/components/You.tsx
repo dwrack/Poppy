@@ -4,6 +4,7 @@ import { db } from '../db'
 import { addMeasurement, deleteMeasurement, saveProfile } from '../lib/profileSync'
 import { supabase } from '../lib/supabase'
 import { syncNow } from '../lib/sync'
+import { MePhotos } from './MePhotos'
 import { MEASURE_FIELDS, type MeasureField, type Profile } from '../types'
 
 const HAIR = ['black', 'dark brown', 'brown', 'light brown', 'auburn', 'red', 'blonde', 'grey', 'other']
@@ -12,7 +13,7 @@ const MEASURE_LABEL: Record<MeasureField, string> = {
   bust: 'Bust', waist: 'Waist', hips: 'Hips', inseam: 'Inseam', shoulder: 'Shoulders',
 }
 
-export function You({ email }: { email?: string }) {
+export function You({ email, userId }: { email?: string; userId: string }) {
   // Wrap in an object so "still loading" (undefined) differs from "no profile yet" ({ p: undefined }).
   const res = useLiveQuery(async () => ({ p: await db.profile.get('me') }), [])
   const loaded = res !== undefined
@@ -22,6 +23,7 @@ export function You({ email }: { email?: string }) {
     <div className="safe-top flex min-h-full flex-col px-4 pt-3 pb-28">
       <h1 className="text-2xl font-extrabold">You</h1>
       <p className="mb-5 text-sm text-mute">{email}</p>
+      <MePhotos userId={userId} />
       {loaded && <ProfileForm key={profile?.updatedAt ?? 0} profile={profile} />}
       <Measurements />
       <Account />

@@ -15,6 +15,8 @@ export type Colour = (typeof COLOURS)[number]
 export const PATTERNS = ['solid', 'stripe', 'check', 'floral', 'print', 'texture'] as const
 export type Pattern = (typeof PATTERNS)[number]
 
+export interface ShopLink { title: string; store: string; url: string; price: string; exact: boolean }
+
 export type ItemStatus = 'active' | 'laundry' | 'archived'
 
 export interface Item {
@@ -31,6 +33,10 @@ export interface Item {
   status: ItemStatus
   favourite: boolean
   tucked: boolean
+  fabric?: string
+  fit?: string
+  feel?: string
+  links?: ShopLink[]
   photo: Blob
   cutout: Blob
   createdAt: number

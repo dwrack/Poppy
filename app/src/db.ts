@@ -13,6 +13,13 @@ db.version(2).stores({
   tombstones: 'id',
 })
 
+db.version(4).stores({
+  items: 'id, category, status, favourite, createdAt, synced',
+  tombstones: 'id',
+  profile: 'id',
+  measurements: 'id, takenOn, synced',
+})
+
 db.version(3).stores({
   items: 'id, category, status, favourite, createdAt, synced',
   tombstones: 'id',

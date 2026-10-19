@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { saveItem } from '../lib/sync'
 import { downscale, makeCutout, warmUp } from '../lib/cutout'
+import { describePhoto } from '../lib/ai'
 import { useObjectUrl } from '../lib/useObjectUrl'
 import { CATEGORIES, CATEGORY_LABEL, COLOURS, PATTERNS, SEASONS, type Category, type Colour, type Item, type Pattern, type Season } from '../types'
 import { Chip, Scale } from './Chip'
@@ -20,6 +21,8 @@ export function AddItem({ onDone }: { onDone: () => void }) {
   const [error, setError] = useState<string>()
   const [draft, setDraft] = useState<Draft>(blank)
   const [saving, setSaving] = useState(false)
+  const [thinking, setThinking] = useState<'idle' | 'busy' | 'done' | 'failed'>('idle')
+  const [searchQuery, setSearchQuery] = useState<string>()
   const preview = useObjectUrl(cutout ?? photo)
 
   useEffect(() => { warmUp() }, [])
@@ -34,11 +37,31 @@ export function AddItem({ onDone }: { onDone: () => void }) {
     try {
       const out = await makeCutout(small, setProgress)
       setCutout(out)
+      void autoTag(out)
     } catch (e) {
       console.error(e)
       setError("Couldn't cut out the background. The photo is saved as is; you can retry later.")
     } finally {
       setProgress(null)
+    }
+  }
+
+  async function autoTag(img: Blob) {
+    setThinking('busy')
+    try {
+      const d = await describePhoto(img)
+      setDraft((cur) => ({
+        ...cur,
+        name: cur.name || d.name,
+        category: d.category, colours: d.colours, pattern: d.pattern,
+        warmth: d.warmth, formality: d.formality, seasons: d.seasons.length ? d.seasons : cur.seasons,
+        fabric: d.fabric, fit: d.fit, feel: d.feel,
+      }))
+      setSearchQuery(d.search_query)
+      setThinking('done')
+    } catch (e) {
+      console.warn('auto-tag failed', e)
+      setThinking('failed')
     }
   }
 
@@ -50,7 +73,7 @@ export function AddItem({ onDone }: { onDone: () => void }) {
     if (!photo) return
     setSaving(true)
     const now = Date.now()
-    await saveItem({ ...draft, id: crypto.randomUUID(), photo, cutout: cutout ?? photo, createdAt: now, updatedAt: now, synced: 0 })
+    await saveItem({ ...draft, notes: [draft.notes, searchQuery ? `search: ${searchQuery}` : ''].filter(Boolean).join(' · ') || undefined, id: crypto.randomUUID(), photo, cutout: cutout ?? photo, createdAt: now, updatedAt: now, synced: 0 })
     setSaving(false)
     onDone()
   }
@@ -105,6 +128,15 @@ export function AddItem({ onDone }: { onDone: () => void }) {
         {photo && progress === null && (
           <p className="text-center text-sm text-mute">Tap the photo to retake.</p>
         )}
+        {thinking === 'busy' && <p className="animate-pulse text-center text-sm font-semibold text-sage">✨ Poppy is looking at it…</p>}
+        {thinking === 'done' && (
+          <div className="rounded-2xl bg-sage/10 p-3 text-sm">
+            <p className="font-bold text-sage">✨ Here's what I see. Fix anything that's off.</p>
+            {draft.feel && <p className="mt-1 italic">“{draft.feel}”</p>}
+            {(draft.fabric || draft.fit) && <p className="mt-1 text-mute">{[draft.fabric, draft.fit].filter(Boolean).join(' · ')}</p>}
+          </div>
+        )}
+        {thinking === 'failed' && <p className="text-center text-sm text-mute">Couldn't auto-tag this one. Tap the details in below.</p>}
 
         <section>
           <Label>What is it?</Label>

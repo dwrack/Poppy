@@ -32,7 +32,7 @@ export default function App() {
         {tab === 'closet' && <Closet onAdd={() => setAdding(true)} />}
         {tab === 'today' && <Soon emoji="☀️" title="Today" blurb="Once your closet has a few pieces, this is where your morning outfit shows up." />}
         {tab === 'friends' && <Friends userId={session.user.id} />}
-        {tab === 'you' && <You email={session.user.email} />}
+        {tab === 'you' && <You email={session.user.email} userId={session.user.id} />}
       </div>
       <nav className="safe-bottom fixed inset-x-0 bottom-0 z-10 flex justify-around border-t border-black/5 bg-cream/95 pt-2 backdrop-blur">
         <TabButton on={tab === 'today'} onClick={() => setTab('today')} emoji="☀️" label="Today" />
