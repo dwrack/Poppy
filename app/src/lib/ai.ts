@@ -33,3 +33,16 @@ export async function findOnline(query: string, cutout?: Blob): Promise<ShopLink
   const res = await call<{ matches: ShopLink[] }>({ mode: 'find', query, image: cutout ? await toBase64(cutout, 512) : undefined })
   return res.matches ?? []
 }
+
+/** Free ways to find a piece: Google Lens on the photo, Google Shopping on the text. */
+export async function freeSearchLinks(itemId: string, query: string) {
+  const { data } = await supabase.auth.getUser()
+  const uid = data.user?.id
+  let lens: string | undefined
+  if (uid) {
+    const { data: s } = await supabase.storage.from('closet').createSignedUrl(`${uid}/${itemId}/photo.jpg`, 3600)
+    if (s?.signedUrl) lens = 'https://lens.google.com/uploadbyurl?url=' + encodeURIComponent(s.signedUrl)
+  }
+  const shop = 'https://www.google.com/search?tbm=shop&q=' + encodeURIComponent(query)
+  return { lens, shop }
+}

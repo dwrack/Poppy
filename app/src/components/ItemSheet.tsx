@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { deleteItem, patchItem } from '../lib/sync'
-import { findOnline } from '../lib/ai'
+import { findOnline, freeSearchLinks } from '../lib/ai'
 import { useObjectUrl } from '../lib/useObjectUrl'
 import { CATEGORY_LABEL, type Item } from '../types'
 
@@ -9,6 +9,12 @@ export function ItemSheet({ item, onClose }: { item: Item; onClose: () => void }
   const update = (patch: Partial<Item>) => patchItem(item.id, patch)
   const [finding, setFinding] = useState<'idle' | 'busy' | 'none' | 'error'>('idle')
   const query = item.notes?.match(/search: ([^·]+)/)?.[1]?.trim() || [item.colours.join(' '), item.fabric, item.fit, item.name || item.category].filter(Boolean).join(' ')
+
+  async function openFree(kind: 'lens' | 'shop') {
+    const links = await freeSearchLinks(item.id, query)
+    const url = kind === 'lens' ? links.lens : links.shop
+    if (url) window.open(url, '_blank', 'noopener')
+  }
 
   async function find() {
     setFinding('busy')
@@ -45,20 +51,24 @@ export function ItemSheet({ item, onClose }: { item: Item; onClose: () => void }
           </div>
         </div>
 
-        <section className="mt-4">
+        <section className="mt-4 space-y-2">
+          <div className="grid grid-cols-2 gap-2">
+            <button onClick={() => openFree('lens')} className="rounded-2xl bg-white py-3 text-sm font-bold ring-1 ring-black/10">📷 Google Lens</button>
+            <button onClick={() => openFree('shop')} className="rounded-2xl bg-white py-3 text-sm font-bold ring-1 ring-black/10">🛍️ Google Shopping</button>
+          </div>
           {item.links && item.links.length > 0 ? (
             <div className="space-y-1.5">
-              <div className="flex items-center justify-between"><span className="text-sm font-bold">🛍️ Found online</span><button onClick={find} disabled={finding === 'busy'} className="text-xs font-semibold text-mute">{finding === 'busy' ? 'Searching…' : 'Search again'}</button></div>
+              <div className="flex items-center justify-between"><span className="text-sm font-bold">✨ Claude found</span><button onClick={find} disabled={finding === 'busy'} className="text-xs font-semibold text-mute">{finding === 'busy' ? 'Searching…' : 'Search again'}</button></div>
               {item.links.map((l, i) => (
                 <a key={i} href={l.url} target="_blank" rel="noreferrer" className="flex items-center justify-between gap-2 rounded-xl bg-white px-3 py-2 ring-1 ring-black/5">
                   <span className="min-w-0"><span className="block truncate text-sm font-semibold">{l.title}</span><span className="text-xs text-mute">{l.store}{l.exact ? ' · exact match' : ' · similar'}</span></span>
-                  <span className="shrink-0 text-sm font-bold text-sage">{l.price}</span>
+                  {l.price && <span className="shrink-0 text-sm font-bold text-sage">{l.price}</span>}
                 </a>
               ))}
             </div>
           ) : (
-            <button onClick={find} disabled={finding === 'busy'} className="w-full rounded-2xl bg-white py-3 text-sm font-bold ring-1 ring-black/10 disabled:opacity-50">
-              {finding === 'busy' ? '🔎 Searching the internet…' : finding === 'none' ? 'Nothing close found. Try again?' : finding === 'error' ? 'Search failed. Try again?' : '🔎 Find it online'}
+            <button onClick={find} disabled={finding === 'busy'} className="w-full py-1 text-xs font-semibold text-mute disabled:opacity-50">
+              {finding === 'busy' ? '✨ Claude is searching, about a minute…' : finding === 'none' ? 'Claude found nothing close. Try again?' : finding === 'error' ? 'Claude search failed. Try again?' : '✨ Or ask Claude to search (a few cents)'}
             </button>
           )}
         </section>
