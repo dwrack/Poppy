@@ -1,6 +1,8 @@
 #!/usr/bin/env bash
 # Poppyseed Clothes: one-time Supabase setup. Run from Terminal on your Mac:
 #   bash <(curl -fsSL https://raw.githubusercontent.com/dwrack/Poppy/master/supabase/setup.sh)
+# To store the Claude API key on the server:
+#   bash <(curl -fsSL https://raw.githubusercontent.com/dwrack/Poppy/master/supabase/setup.sh) key
 # After you've created your account in the app, close sign-ups with:
 #   bash <(curl -fsSL https://raw.githubusercontent.com/dwrack/Poppy/master/supabase/setup.sh) lock
 #
@@ -40,7 +42,16 @@ call() { # method path body-file
 body=$(mktemp)
 trap 'rm -f "$body"' EXIT
 
-if [ "${1:-}" = "lock" ]; then
+if [ "${1:-}" = "key" ]; then
+  printf "Now paste your Claude API key (starts with sk-ant-) and press Return.\n"
+  printf "It stays hidden while you paste: "
+  read -rs AKEY </dev/tty
+  printf "\n\n"
+  case "$AKEY" in sk-ant-*) ;; *) echo "That doesn't look right. The key should start with sk-ant-"; exit 1 ;; esac
+  printf '[{"name":"ANTHROPIC_API_KEY","value":"%s"}]' "$AKEY" > "$body"
+  call POST /secrets "$body"
+  echo "Done. The Claude key is stored on the server. Auto-tagging and Find it online are on."
+elif [ "${1:-}" = "lock" ]; then
   echo '{"disable_signup": true}' > "$body"
   call PATCH /config/auth "$body"
   echo "Done. Sign-ups are closed. Only your existing account can sign in."
