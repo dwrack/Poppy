@@ -53,12 +53,45 @@ create policy "ask to borrow" on borrow_requests for insert
     and item_owned_by(item_id, owner_id)
     and (round_id is null or (is_member(round_group(round_id)) and round_status(round_id) = 'open')));
 
--- Both parties may still update (answer, hand over, return), but nobody can
--- move a request onto another round or change who it is between.
+-- Who may answer. In v2 the status was only a label on the Squad tab; from
+-- here on it gates outfit_allowed() and lent_it stars, so the borrower must
+-- not be able to say yes to herself. Owner: requested -> approved | declined,
+-- approved -> out, out -> returned. Borrower: requested | approved -> cancelled.
+-- The policies say who, the trigger below says which moves, and locks every
+-- other column (round, item, parties) so a request cannot be moved onto a
+-- round after the fact.
 drop policy if exists "borrow parties update" on borrow_requests;
-create policy "borrow parties update" on borrow_requests for update
-  using (auth.uid() in (owner_id, borrower_id))
-  with check (auth.uid() in (owner_id, borrower_id));
+drop policy if exists "owner answers borrow" on borrow_requests;
+create policy "owner answers borrow" on borrow_requests for update
+  using (owner_id = auth.uid())
+  with check (owner_id = auth.uid() and status in ('approved','declined','out','returned'));
+drop policy if exists "borrower cancels borrow" on borrow_requests;
+create policy "borrower cancels borrow" on borrow_requests for update
+  using (borrower_id = auth.uid())
+  with check (borrower_id = auth.uid() and status = 'cancelled');
+
+create or replace function borrow_requests_lock() returns trigger
+language plpgsql as $$
+begin
+  if new.item_id <> old.item_id or new.owner_id <> old.owner_id or new.borrower_id <> old.borrower_id
+     or new.round_id is distinct from old.round_id or new.needed_on is distinct from old.needed_on
+     or new.note is distinct from old.note or new.created_at <> old.created_at then
+    raise exception 'Only the status of a borrow request can change';
+  end if;
+  -- No signed-in player means the dashboard or a service key, not a phone.
+  if auth.uid() is null or new.status = old.status then return new; end if;
+  if auth.uid() = old.owner_id
+     and (old.status, new.status) in (('requested','approved'), ('requested','declined'), ('approved','out'), ('out','returned')) then
+    return new;
+  end if;
+  if auth.uid() = old.borrower_id and old.status in ('requested','approved') and new.status = 'cancelled' then
+    return new;
+  end if;
+  raise exception 'A borrow request cannot go from % to % for you', old.status, new.status;
+end $$;
+drop trigger if exists borrow_requests_lock on borrow_requests;
+create trigger borrow_requests_lock before update on borrow_requests
+  for each row execute function borrow_requests_lock();
 
 -- Is this piece borrowed by the signed-in player for this round, with a yes?
 create or replace function borrowed_for_round(item uuid, r uuid) returns boolean
