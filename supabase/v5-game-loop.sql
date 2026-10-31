@@ -136,17 +136,32 @@ language sql stable security definer set search_path = public as $$
       and now() < ro.reveal_at + interval '8 days')
 $$;
 
+-- The photo may only be her own wore-it file for this round. Without this
+-- a squad-mate could point her row at another kid's me-photo or closet
+-- file (same bucket, group mates can sign any path) and the lookbook
+-- would show it as hers.
+create or replace function wore_it_path_ok(r uuid, p text) returns boolean
+language sql stable as $$
+  select p is null or p = auth.uid()::text || '/wore/' || r::text || '.jpg'
+$$;
+-- Table-level backstop so a later policy edit cannot reopen it.
+alter table round_actions drop constraint if exists round_actions_photo_own_folder;
+alter table round_actions add constraint round_actions_photo_own_folder
+  check (photo_path is null or photo_path like user_id::text || '/wore/%');
+
 drop policy if exists "squad sees round actions" on round_actions;
 create policy "squad sees round actions" on round_actions for select
   using (is_member(round_group(round_id)));
 -- Only 'wore_it' is writable in part 1; 'styled_by' arrives with part 2.
 drop policy if exists "wore it, the day after" on round_actions;
 create policy "wore it, the day after" on round_actions for insert
-  with check (user_id = auth.uid() and kind = 'wore_it' and wore_it_open(round_id));
+  with check (user_id = auth.uid() and kind = 'wore_it' and wore_it_open(round_id)
+    and wore_it_path_ok(round_id, photo_path));
 drop policy if exists "add the photo later" on round_actions;
 create policy "add the photo later" on round_actions for update
   using (user_id = auth.uid() and kind = 'wore_it' and wore_it_open(round_id))
-  with check (user_id = auth.uid() and kind = 'wore_it' and wore_it_open(round_id));
+  with check (user_id = auth.uid() and kind = 'wore_it' and wore_it_open(round_id)
+    and wore_it_path_ok(round_id, photo_path));
 
 -- One star for wearing it. Security definer because the ledger has no
 -- insert policy on purpose.
