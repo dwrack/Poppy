@@ -2,6 +2,7 @@ import { db } from '../db'
 import { BUCKET, supabase } from './supabase'
 import type { Item } from '../types'
 import { syncProfile } from './profileSync'
+import { syncAvatar } from './avatarSync'
 
 type Row = {
   id: string; name: string; category: string; colours: string[]; pattern: string
@@ -125,4 +126,5 @@ export async function syncNow() {
   await pushPending()
   await pullAll()
   await syncProfile()
+  await syncAvatar()
 }
