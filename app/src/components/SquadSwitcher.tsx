@@ -8,7 +8,7 @@ export function SquadSwitcher({ userId }: { userId: string }) {
   const { squads, active, setActive } = useSquads(userId)
   if (squads.length < 2) return null
   return (
-    <div role="tablist" aria-label="Your squads" data-testid="squad-switcher" className="-mx-4 mb-3 flex gap-2 overflow-x-auto px-4 pb-1 [scrollbar-width:none]">
+    <div role="tablist" aria-label="Your squads" data-testid="squad-switcher" className="-mx-4 mb-3 flex gap-2 overflow-x-auto px-4 pt-1 pb-1 [scrollbar-width:none]">
       {squads.map((s) => {
         const on = s.id === active?.id
         return (

@@ -158,13 +158,15 @@ function SquadForm({ initialMode, myName, myEmoji, onDone }: {
         ) : (
           <Field label="Your name in the squad"><input required value={name} onChange={(e) => setName(e.target.value)} placeholder="Poppy" className={inputCls} /></Field>
         )}
-        <Field label="Pick your icon">
+        {/* not a <label>: wrapping the buttons in one would name the first button after all of them */}
+        <div role="group" aria-label="Pick your icon">
+          <span className="mb-1 block text-sm font-bold">Pick your icon</span>
           <div className="flex flex-wrap gap-2">
             {EMOJIS.map((x) => (
-              <button type="button" key={x} onClick={() => setEmoji(x)} className={'flex h-11 w-11 items-center justify-center rounded-full text-2xl ' + (emoji === x ? 'bg-peach/30 ring-2 ring-poppy' : 'bg-white ring-1 ring-black/10')}>{x}</button>
+              <button type="button" key={x} onClick={() => setEmoji(x)} aria-pressed={emoji === x} className={'flex h-11 w-11 items-center justify-center rounded-full text-2xl ' + (emoji === x ? 'bg-peach/30 ring-2 ring-poppy' : 'bg-white ring-1 ring-black/10')}>{x}</button>
             ))}
           </div>
-        </Field>
+        </div>
         <button disabled={busy} className="w-full rounded-full bg-poppy py-3 font-bold text-white shadow-lg shadow-poppy/40 disabled:opacity-50">
           {busy ? '…' : mode === 'start' ? 'Create squad' : 'Join squad'}
         </button>
