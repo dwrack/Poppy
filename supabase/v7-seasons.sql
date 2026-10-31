@@ -207,7 +207,8 @@ $$;
 -- Hand out the badges for a finished season. Idempotent. Internal: called
 -- by finish_round(); not callable from the app.
 --   Season Winner          most season stars (ties all win)
---   Most Improved          biggest gain over the previous season (season 2+)
+--   Most Improved          biggest gain over the previous season (season 2+,
+--                          only members who entered a round last season)
 --   Never Missed a Round   a look in every one of the 12 rounds
 --   Best Lender            most 'lent' stars; placeholder until borrowing
 --                          pays into the ledger, so it never fires yet
@@ -238,14 +239,20 @@ begin
     select user_id, g, s, 'Never Missed a Round' from _season_tot where entered = 12
   on conflict do nothing;
 
+  -- Only members who entered at least one round last season can improve on
+  -- it; a newcomer's gain from 0 is not improvement.
   if s > 1 then
     select max(t.stars - coalesce((select sum(l.amount) from stars_ledger l join rounds r on r.id = l.round_id
                                    where l.user_id = t.user_id and r.group_id = g and r.season_no = s - 1), 0))
-      into best_gain from _season_tot t;
+      into best_gain from _season_tot t
+      where exists (select 1 from entries e join rounds r on r.id = e.round_id
+                    where e.user_id = t.user_id and r.group_id = g and r.season_no = s - 1);
     if best_gain > 0 then
       insert into season_badges (user_id, group_id, season_no, badge)
         select t.user_id, g, s, 'Most Improved' from _season_tot t
-        where t.stars - coalesce((select sum(l.amount) from stars_ledger l join rounds r on r.id = l.round_id
+        where exists (select 1 from entries e join rounds r on r.id = e.round_id
+                      where e.user_id = t.user_id and r.group_id = g and r.season_no = s - 1)
+          and t.stars - coalesce((select sum(l.amount) from stars_ledger l join rounds r on r.id = l.round_id
                                   where l.user_id = t.user_id and r.group_id = g and r.season_no = s - 1), 0) = best_gain
       on conflict do nothing;
     end if;
@@ -296,6 +303,10 @@ begin
   select * into ro from rounds where id = r;
   if ro.round_no = 12 then perform award_season_badges(ro.group_id, ro.season_no); end if;
 end $$;
+-- Internal: only advance_rounds() ends a round. Neither this nor create_round
+-- was revoked in step 1, so a signed-in member could call them directly.
+revoke execute on function finish_round(uuid) from public, anon, authenticated;
+revoke execute on function create_round(uuid, timestamptz) from public, anon, authenticated;
 
 -- advance_rounds: same clock as step 1; the theme now comes from the pack
 -- in season, and every round is stamped with its season and round number
