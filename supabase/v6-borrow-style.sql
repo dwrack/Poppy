@@ -28,8 +28,10 @@
 --                              (plus 'out' and 'cancelled' from v2).
 --   styled_looks               a look one friend built for another from
 --                              HER closet, with one compliment chip.
---                              sent -> worn (she used it as her entry)
---                                   -> declined
+--                              sent -> declined is stored; "worn" is never
+--                              stored, it is derived from an entry whose
+--                              styled_look_id points at the look, so it
+--                              cannot drift from the runway.
 --   entries.styled_look_id     set when an entry IS a styled look.
 --   entries outfit check       every piece in an entry is yours, or
 --                              borrowed for this round with a yes.
@@ -147,12 +149,20 @@ language sql stable security definer set search_path = public as $$
     select 1 from styled_looks s where s.id = l and s.round_id = r and s.to_user = auth.uid())
 $$;
 
--- Read: the recipient always; the squad once the round is revealed.
+-- Is this look what its recipient is wearing (her entry points at it)?
+create or replace function styled_look_worn(l uuid) returns boolean
+language sql stable security definer set search_path = public as $$
+  select exists (select 1 from entries e where e.styled_look_id = l)
+$$;
+
+-- Read: the recipient always; the squad once the round is revealed, and
+-- then only the look that was actually worn (for the "styled by" credit).
+-- A look she waved off or ignored stays between the two of them.
 -- The stylist reads her own sent looks through styled_looks_for_round()
 -- below, which hides whether they were worn until the reveal.
 drop policy if exists "recipient or revealed" on styled_looks;
 create policy "recipient or revealed" on styled_looks for select
-  using (to_user = auth.uid() or round_revealed(round_id));
+  using (to_user = auth.uid() or (round_revealed(round_id) and styled_look_worn(id)));
 
 -- Write: only as yourself, only to a squad mate, only from HER closet,
 -- only while the round is open.
@@ -162,12 +172,13 @@ create policy "style a friend while open" on styled_looks for insert
     and is_member(round_group(round_id)) and round_status(round_id) = 'open'
     and items_owned_by(item_ids, to_user) and status = 'sent');
 
--- The recipient answers (worn / declined) while the round is open. Nothing
--- else about the row can change.
+-- The recipient answers (declined, or back to sent) while the round is
+-- open. Wearing it is done by pointing her entry at the look, never by
+-- writing 'worn' here. Nothing else about the row can change.
 drop policy if exists "recipient answers while open" on styled_looks;
 create policy "recipient answers while open" on styled_looks for update
   using (to_user = auth.uid() and round_status(round_id) = 'open')
-  with check (to_user = auth.uid() and round_status(round_id) = 'open');
+  with check (to_user = auth.uid() and round_status(round_id) = 'open' and status in ('sent','declined'));
 
 -- Lock the columns a recipient could otherwise rewrite on update.
 create or replace function styled_looks_lock() returns trigger
@@ -248,7 +259,7 @@ begin
     insert into stars_ledger (user_id, round_id, reason, amount)
       select s.from_user, r, 'styled_win', ceil(t.total / 2.0)::int
       from entries e
-      join styled_looks s on s.id = e.styled_look_id and s.status = 'worn'
+      join styled_looks s on s.id = e.styled_look_id
       join (select e2.id, coalesce(sum(v.stars), 0) as total from entries e2
             left join votes v on v.entry_id = e2.id where e2.round_id = r group by e2.id) t on t.id = e.id
       where e.round_id = r and t.total = top
@@ -276,7 +287,7 @@ language sql stable security definer set search_path = public as $$
     ), '[]'::jsonb),
     (select st.display_name from styled_looks s
        join group_members st on st.group_id = ro.group_id and st.user_id = s.from_user
-     where s.id = e.styled_look_id and s.status = 'worn')
+     where s.id = e.styled_look_id)
   from entries e
   join rounds ro on ro.id = e.round_id
   join group_members m on m.group_id = ro.group_id and m.user_id = e.user_id
@@ -285,22 +296,30 @@ language sql stable security definer set search_path = public as $$
   order by e.submitted_at
 $$;
 
--- Styled looks I can see for a round, with names. Looks I sent come back
--- with status 'sent' until the round is revealed, so I cannot tell whether
--- my friend is wearing it before the runway plays.
-create or replace function styled_looks_for_round(r uuid)
+-- Styled looks I can see for a round, with names. Status is derived:
+-- 'worn' when the recipient's entry points at the look, else what is
+-- stored ('sent' or 'declined'). Looks I sent come back as 'sent' until
+-- the round is revealed, so I cannot tell whether my friend is wearing it
+-- before the runway plays. Squad mates who are neither party only ever
+-- get the looks that were worn, after the reveal.
+drop function if exists styled_looks_for_round(uuid);
+create function styled_looks_for_round(r uuid)
 returns table (id uuid, round_id uuid, from_user uuid, to_user uuid, item_ids uuid[], message_chip text,
                status text, created_at timestamptz, from_name text, to_name text)
 language sql stable security definer set search_path = public as $$
   select s.id, s.round_id, s.from_user, s.to_user, s.item_ids, s.message_chip,
-    case when s.to_user = auth.uid() or round_revealed(r) then s.status else 'sent' end,
+    case when s.to_user <> auth.uid() and not round_revealed(r) then 'sent'
+         when styled_look_worn(s.id) then 'worn'
+         when s.status = 'declined' then 'declined'
+         else 'sent' end,
     s.created_at, f.display_name, t.display_name
   from styled_looks s
   join rounds ro on ro.id = s.round_id
   join group_members f on f.group_id = ro.group_id and f.user_id = s.from_user
   join group_members t on t.group_id = ro.group_id and t.user_id = s.to_user
   where s.round_id = r and is_member(ro.group_id)
-    and (s.to_user = auth.uid() or s.from_user = auth.uid() or round_revealed(r))
+    and (s.to_user = auth.uid() or s.from_user = auth.uid()
+         or (round_revealed(r) and styled_look_worn(s.id)))
   order by s.created_at desc
 $$;
 
