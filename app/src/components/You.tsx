@@ -9,6 +9,7 @@ import { syncNow } from '../lib/sync'
 import { MePhotos } from './MePhotos'
 import { SquadLadder } from './SquadLadder'
 import { useStars } from '../lib/game'
+import { useSquads } from '../lib/squads'
 import { SeasonBadges } from './SeasonBadges'
 import {
   AVATAR_EYES, AVATAR_FACES, AVATAR_HAIR_COLOURS, AVATAR_HAIRS, AVATAR_SKINS, MEASURE_FIELDS, type AvatarLook, type MeasureField, type Profile,
@@ -236,12 +237,14 @@ function Swatch({ on, onClick, title, hex, children }: { on: boolean; onClick: (
 
 function StarsCard({ userId }: { userId: string }) {
   const { stars, title, next, toNext, from, to } = useStars(userId)
+  // Your own title counts every star you have earned, in every squad you play in.
+  const many = useSquads(userId).squads.length > 1
   const pct = to ? Math.min(100, Math.round((((stars ?? 0) - from) / (to - from)) * 100)) : 100
   return (
     <section className="mb-4 rounded-blob bg-ink p-4 text-white">
       <div className="flex items-end justify-between">
         <div>
-          <div className="text-xs font-bold tracking-wide text-white/60 uppercase">Runway ladder</div>
+          <div className="text-xs font-bold tracking-wide text-white/60 uppercase">Runway ladder{many ? ' · all your squads' : ''}</div>
           <div className="text-2xl font-extrabold">{title}</div>
         </div>
         <div className="text-right">

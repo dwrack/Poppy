@@ -7,6 +7,7 @@ import { Runway } from './components/Runway'
 import { You } from './components/You'
 import { useAccountDb } from './lib/account'
 import { SignIn, useSession } from './lib/auth'
+import { SquadsProvider } from './lib/SquadsProvider'
 import { syncNow } from './lib/sync'
 
 type Tab = 'runway' | 'closet' | 'friends' | 'you'
@@ -20,8 +21,12 @@ export default function App() {
   if (session === undefined) return null
   if (!session) return <SignIn />
   if (!ready) return null
-  // Keyed by account: switching accounts starts every screen from scratch, nothing carries over.
-  return <Home key={session.user.id} session={session} />
+  // Keyed by account: switching accounts starts every screen (and the squad list) from scratch, nothing carries over.
+  return (
+    <SquadsProvider key={session.user.id} userId={session.user.id}>
+      <Home session={session} />
+    </SquadsProvider>
+  )
 }
 
 function Home({ session }: { session: Session }) {

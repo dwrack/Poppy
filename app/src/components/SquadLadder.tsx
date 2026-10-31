@@ -1,14 +1,15 @@
-import { useSquad } from '../lib/friends'
 import { LADDER, ladderFor, useSquadLadder } from '../lib/game'
+import { useSquad, useSquads, type Squad } from '../lib/squads'
 
 /**
  * Everyone's stars side by side, with titles, wore-it streaks and where
  * the squad is in its season (12 rounds). Read-only; the ledger is the
- * truth and the server sums it.
+ * truth and the server sums it. Shows the active squad (the one picked on
+ * the Squad or Runway tab).
  */
 export function SquadLadder({ userId }: { userId: string }) {
   const squad = useSquad(userId)
-  const { rows, season } = useSquadLadder(squad.group?.id)
+  const { squads } = useSquads(userId)
 
   if (squad.loading) return null
   if (!squad.group) {
@@ -19,18 +20,23 @@ export function SquadLadder({ userId }: { userId: string }) {
       </section>
     )
   }
+  // Keyed by squad so one squad's rows never sit under another squad's name.
+  return <Ladder key={squad.group.id} userId={userId} group={squad.group} many={squads.length > 1} />
+}
 
+function Ladder({ userId, group, many }: { userId: string; group: Squad; many: boolean }) {
+  const { rows, season } = useSquadLadder(group.id)
   const top = rows?.[0]?.stars ?? 0
   const played = season?.rounds_done ?? 0
   const per = season?.rounds_per_season ?? 12
   const inSeason = season?.round_in_season ?? 0
 
   return (
-    <section className="mb-4 rounded-blob bg-white p-4 ring-1 ring-black/5">
+    <section className="mb-4 rounded-blob bg-white p-4 ring-1 ring-black/5" data-testid="squad-ladder">
       <div className="flex items-end justify-between">
         <div>
           <div className="text-xs font-bold tracking-wide text-mute uppercase">Squad ladder</div>
-          <h3 className="text-lg font-extrabold">{squad.group.name}</h3>
+          <h3 className="text-lg font-extrabold">{group.name}</h3>
         </div>
         <div className="text-right">
           <div className="text-sm font-extrabold">Season {season?.season_no ?? 1}</div>
@@ -75,6 +81,7 @@ export function SquadLadder({ userId }: { userId: string }) {
 
       <p className="mt-3 text-[11px] text-mute">
         Titles: {LADDER.map((l) => `${l.title} ${l.at}`).join(' · ')}. Season {season?.season_no ?? 1} ends after round {per}{played ? ` (${played} played so far)` : ''}.
+        {many && ' Stars here are from this squad only. Switch squads on the Squad or Runway tab.'}
       </p>
     </section>
   )

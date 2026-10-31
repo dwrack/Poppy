@@ -124,7 +124,11 @@ await ctx.route(/supabase\.co\//, (route) => {
   if (p.endsWith('/rpc/round_entry_cards_v2')) return json(route, cards)
   if (p.endsWith('/rpc/round_results')) return json(route, results)
   if (p.endsWith('/rest/v1/groups')) return json(route, { id: GROUP, name: 'The Squad', owner_id: USER, tz: 'America/Chicago' })
-  if (p.endsWith('/rest/v1/group_members')) return json(route, q.includes('select=group_id') ? [{ group_id: GROUP }] : members)
+  // my squads (one here; squads-shot.mjs covers two) with the squad embedded, or the active squad's members
+  if (p.endsWith('/rest/v1/group_members')) {
+    if (q.includes('user_id=eq.')) return json(route, [{ group_id: GROUP, display_name: 'Poppy', emoji: '🌸', role: 'owner', joined_at: members[0].joined_at, groups: { id: GROUP, name: 'The Squad', owner_id: USER, tz: 'America/Chicago' } }])
+    return json(route, members)
+  }
   if (p.endsWith('/rest/v1/rounds')) {
     if (q.includes('status=neq.done')) return json(route, [mode === 'reveal' ? revealRound : nextRound])
     if (q.includes('status=eq.done')) return json(route, mode === 'reveal' ? [] : [doneRound])

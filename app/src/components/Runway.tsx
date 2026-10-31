@@ -2,7 +2,8 @@ import { useLiveQuery } from 'dexie-react-hooks'
 import { useCallback, useEffect, useMemo, useState, type CSSProperties, type ReactNode } from 'react'
 import { db } from '../db'
 import { useBorrowedPieces, useRoundBorrows, useStyledLooks, wearStyledLook, type StyledLook } from '../lib/borrowStyle'
-import { useSquad, type Borrow, type Member } from '../lib/friends'
+import type { Borrow, Member } from '../lib/friends'
+import { useSquad, type Squad } from '../lib/squads'
 import {
   CHIPS, CHIP_LABEL, castVote, countdown, loadLookbook, loadMyEntry, loadMyVotes, loadResults, loadRunway,
   packFor, phaseEnds, rank, seededShuffle, setSquadTimeZone, startRoundNow, submitEntry, useActivePack, useRound, useSubmitted, SEASON_ROUNDS,
@@ -17,6 +18,7 @@ import { Chip as ChipButton } from './Chip'
 import { PhotoChip } from './PhotoChip'
 import { SeasonPodium } from './SeasonPodium'
 import { SeasonStrip } from './SeasonStrip'
+import { SquadSwitcher } from './SquadSwitcher'
 import { CardStack, LocalStack, type RemotePiece } from './Stack'
 import { StyledLooks } from './StyledLooks'
 import { ThemePick } from './ThemePick'
@@ -24,20 +26,24 @@ import { WoreIt } from './WoreIt'
 
 export function Runway({ userId, onAdd, onGoSquad }: { userId: string; onAdd: () => void; onGoSquad: () => void }) {
   const squad = useSquad(userId)
-  const group = squad.group
-  const { loading, current, last, now, refresh } = useRound(group?.id)
-  const isOwner = group?.owner_id === userId
+  if (squad.loading) return <div className="p-8 text-center text-mute">Loading…</div>
+  if (!squad.group) return <NoSquad onGoSquad={onGoSquad} />
+  // Keyed by squad: switching squads starts the whole runway fresh (round, looks, votes, borrows, styled looks).
+  return <SquadRunway key={squad.group.id} userId={userId} group={squad.group} members={squad.members} onAdd={onAdd} />
+}
+
+function SquadRunway({ userId, group, members, onAdd }: { userId: string; group: Squad; members: Member[]; onAdd: () => void }) {
+  const { loading, current, last, now, refresh } = useRound(group.id)
+  const isOwner = group.owner_id === userId
   const todayPack = useActivePack()
   const pack = packFor(current, last, todayPack)
 
   // The owner's phone decides what "Friday 5pm" means for the squad, once.
-  useEffect(() => { if (group && isOwner && !group.tz) void setSquadTimeZone(group.id) }, [group, isOwner])
-
-  if (squad.loading) return <div className="p-8 text-center text-mute">Loading…</div>
-  if (!group) return <NoSquad onGoSquad={onGoSquad} />
+  useEffect(() => { if (isOwner && !group.tz) void setSquadTimeZone(group.id) }, [group.id, group.tz, isOwner])
 
   return (
     <div className="safe-top flex min-h-full flex-col px-4 pt-3 pb-28" style={{ '--pack-lobby': pack.lobby_colour, '--pack-confetti': pack.confetti_colour } as CSSProperties}>
+      <SquadSwitcher userId={userId} />
       <div className="flex items-end justify-between">
         <div>
           <h1 className="text-2xl font-extrabold">Runway</h1>
@@ -58,7 +64,7 @@ export function Runway({ userId, onAdd, onGoSquad }: { userId: string; onAdd: ()
           {last && <LastRound round={last} userId={userId} now={now} />}
         </>
       ) : current.status === 'open' ? (
-        <OpenRound round={current} userId={userId} members={squad.members} now={now} onAdd={onAdd} />
+        <OpenRound round={current} userId={userId} members={members} now={now} onAdd={onAdd} />
       ) : (
         <Show round={current} userId={userId} now={now} />
       )}

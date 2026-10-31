@@ -1,75 +1,147 @@
 import { useEffect, useMemo, useState, type ReactNode } from 'react'
 import {
-  APP_URL, askToBorrow, createSquad, describeItems, joinSquad, loadFriendCloset, makeInvite, setBorrowStatus,
-  useBorrows, useSquad, type Borrow, type FriendItem, type Member,
+  APP_URL, askToBorrow, createSquad, describeItems, joinSquad, leaveSquad, loadFriendCloset, makeInvite, setBorrowStatus,
+  useBorrows, type Borrow, type FriendItem, type Member,
 } from '../lib/friends'
+import { useSquad, useSquads, type Squad } from '../lib/squads'
 import { CATEGORY_LABEL } from '../types'
+import { SquadSwitcher } from './SquadSwitcher'
 
-const EMOJIS = ['🌸', '🦋', '🍓', '🌈', '⭐', '🐱', '🍒', '🌻', '🫧', '🎀', '🐰', '🌙']
+const EMOJIS = ['🌸', '🦋', '🍓', '🌈', '⭐', '🐱', '🍒', '🌻', '🫧', '🎀', '🐰', '🌙', '🐶', '🦊', '🎸', '⚽']
 
 export function Friends({ userId }: { userId: string }) {
   const squad = useSquad(userId)
-  const [viewing, setViewing] = useState<Member>()
 
   if (squad.loading) return <div className="p-8 text-center text-mute">Loading…</div>
-  if (!squad.group) return <SquadSetup onDone={squad.refresh} />
+  if (!squad.group) return <FirstSquad userId={userId} />
+  // Keyed by squad: switching squads starts this screen fresh (no closet, request or member from the other one).
+  return <SquadHome key={squad.group.id} userId={userId} group={squad.group} members={squad.members} />
+}
+
+function SquadHome({ userId, group, members }: { userId: string; group: Squad; members: Member[] }) {
+  const [viewing, setViewing] = useState<Member>()
   if (viewing) return <FriendCloset member={viewing} isMe={viewing.user_id === userId} onBack={() => setViewing(undefined)} />
 
   return (
     <div className="safe-top flex min-h-full flex-col px-4 pt-3 pb-28">
+      <SquadSwitcher userId={userId} />
       <div className="flex items-end justify-between">
         <div>
-          <h1 className="text-2xl font-extrabold">{squad.group.name}</h1>
-          <p className="text-sm text-mute">{squad.members.length} {squad.members.length === 1 ? 'member' : 'members'} · invite only</p>
+          <h1 className="text-2xl font-extrabold">{group.name}</h1>
+          <p className="text-sm text-mute">{members.length} {members.length === 1 ? 'member' : 'members'} · invite only</p>
         </div>
-        <InviteButton groupId={squad.group.id} />
+        <InviteButton groupId={group.id} groupName={group.name} />
       </div>
 
       <div className="-mx-4 mt-4 flex gap-3 overflow-x-auto px-4 pb-2 [scrollbar-width:none]">
-        {squad.members.map((m) => (
+        {members.map((m) => (
           <button key={m.user_id} onClick={() => setViewing(m)} className="flex w-20 shrink-0 flex-col items-center gap-1 active:scale-95">
             <span className="flex h-16 w-16 items-center justify-center rounded-full bg-white text-3xl shadow-sm ring-2 ring-peach/60">{m.emoji}</span>
             <span className="w-full truncate text-center text-xs font-bold">{m.user_id === userId ? 'You' : m.display_name}</span>
           </button>
         ))}
       </div>
-      <p className="mt-1 text-xs text-mute">Tap a friend to browse their closet.</p>
+      <p className="mt-1 text-xs text-mute">Tap someone to see their closet.</p>
 
-      <BorrowBoard userId={userId} members={squad.members} />
+      <BorrowBoard userId={userId} groupId={group.id} members={members} />
+      <MoreSquads userId={userId} group={group} />
     </div>
   )
 }
 
-/* ---------- Start or join a squad ---------- */
+/* ---------- No squad yet: start or join one ---------- */
 
-function SquadSetup({ onDone }: { onDone: () => void }) {
-  const [mode, setMode] = useState<'start' | 'join'>('start')
+function FirstSquad({ userId }: { userId: string }) {
+  const { refresh, setActive } = useSquads(userId)
+  return (
+    <div className="safe-top flex min-h-full flex-col items-center px-6 pt-10 pb-28 text-center">
+      <div className="text-6xl">👯</div>
+      <h1 className="mt-3 text-2xl font-extrabold">Your squad</h1>
+      <p className="mt-1 max-w-xs text-mute">A private group for you and your friends or family. Swap closets, borrow pieces, and play style challenges.</p>
+      <SquadForm initialMode="start" onDone={async (id) => { await refresh(); setActive(id) }} />
+    </div>
+  )
+}
+
+/* ---------- Another squad, any time: start, join, or leave this one ---------- */
+
+function MoreSquads({ userId, group }: { userId: string; group: Squad }) {
+  const { squads, refresh, setActive } = useSquads(userId)
+  const [adding, setAdding] = useState<'start' | 'join'>()
+  const [busy, setBusy] = useState(false)
+  const [err, setErr] = useState<string>()
+
+  async function added(id: string) {
+    await refresh()
+    setActive(id) // the new squad is the one you see next
+    setAdding(undefined)
+  }
+
+  async function leave() {
+    if (!confirm(`Leave ${group.name}? You’d need a new invite code to get back in.`)) return
+    setBusy(true); setErr(undefined)
+    try {
+      await leaveSquad(group.id, userId)
+      const next = squads.find((s) => s.id !== group.id)
+      await refresh()
+      if (next) setActive(next.id)
+    } catch (x) { setErr((x as Error).message); setBusy(false) }
+  }
+
+  const many = squads.length > 1
+  return (
+    <section className="mt-8 rounded-blob bg-white p-4 ring-1 ring-black/5" data-testid="more-squads">
+      <h2 className="text-lg font-extrabold">{many ? `Your squads · ${squads.length}` : 'More squads'}</h2>
+      <p className="text-xs text-mute">
+        {many ? 'Switch between them at the top of this tab or the Runway. Each one has its own runway and ladder.'
+          : 'You can be in more than one: friends, family, a team. Each one has its own runway and ladder.'}
+      </p>
+      <div className="mt-3 grid grid-cols-2 gap-2">
+        <button onClick={() => setAdding('start')} className="rounded-2xl bg-cream px-2 py-3 text-sm font-bold ring-1 ring-black/10 active:scale-[0.98]">＋ Start another squad</button>
+        <button onClick={() => setAdding('join')} className="rounded-2xl bg-cream px-2 py-3 text-sm font-bold ring-1 ring-black/10 active:scale-[0.98]">🔑 Join another squad</button>
+      </div>
+      <button onClick={leave} disabled={busy} className="mt-3 w-full py-1 text-xs font-bold text-mute disabled:opacity-50">Leave {group.name}</button>
+      {err && <p className="text-center text-sm text-poppy">{err}</p>}
+      {adding && (
+        <Sheet onClose={() => setAdding(undefined)}>
+          <SquadForm key={adding} initialMode={adding} myName={group.my_name} myEmoji={group.my_emoji} onDone={added} />
+        </Sheet>
+      )}
+    </section>
+  )
+}
+
+/**
+ * Start a squad (pick its name) or join one (invite code), and pick your icon
+ * in it. Someone already in a squad keeps the name they go by there, so the
+ * only typing is the squad name or the code.
+ */
+function SquadForm({ initialMode, myName, myEmoji, onDone }: {
+  initialMode: 'start' | 'join'; myName?: string; myEmoji?: string; onDone: (groupId: string) => Promise<void>
+}) {
+  const [mode, setMode] = useState(initialMode)
   const [squadName, setSquadName] = useState('')
-  const [myName, setMyName] = useState('')
+  const [name, setName] = useState('')
   const [code, setCode] = useState('')
-  const [emoji, setEmoji] = useState('🌸')
+  const [emoji, setEmoji] = useState(myEmoji ?? '🌸')
   const [busy, setBusy] = useState(false)
   const [err, setErr] = useState<string>()
 
   async function go(e: React.FormEvent) {
     e.preventDefault()
     setBusy(true); setErr(undefined)
+    const me = (myName ?? name).trim()
     try {
-      if (mode === 'start') await createSquad(squadName.trim(), myName.trim(), emoji)
-      else await joinSquad(code, myName.trim(), emoji)
-      onDone()
-    } catch (x) { setErr((x as Error).message) } finally { setBusy(false) }
+      const id = mode === 'start' ? await createSquad(squadName.trim(), me, emoji) : await joinSquad(code, me, emoji)
+      await onDone(id)
+    } catch (x) { setErr((x as Error).message); setBusy(false) }
   }
 
   return (
-    <div className="safe-top flex min-h-full flex-col items-center px-6 pt-10 pb-28 text-center">
-      <div className="text-6xl">👯</div>
-      <h1 className="mt-3 text-2xl font-extrabold">Your squad</h1>
-      <p className="mt-1 max-w-xs text-mute">A private group for you and your friends. Swap closets, borrow pieces, and play style challenges.</p>
-
+    <div className="flex w-full flex-col items-center">
       <div className="mt-6 flex rounded-full bg-white p-1 ring-1 ring-black/10">
         {(['start', 'join'] as const).map((m) => (
-          <button key={m} onClick={() => setMode(m)} className={'rounded-full px-5 py-2 text-sm font-bold ' + (mode === m ? 'bg-poppy text-white' : 'text-mute')}>
+          <button key={m} type="button" onClick={() => setMode(m)} className={'rounded-full px-5 py-2 text-sm font-bold ' + (mode === m ? 'bg-poppy text-white' : 'text-mute')}>
             {m === 'start' ? 'Start a squad' : 'Join with a code'}
           </button>
         ))}
@@ -77,11 +149,15 @@ function SquadSetup({ onDone }: { onDone: () => void }) {
 
       <form onSubmit={go} className="mt-5 w-full max-w-xs space-y-3 text-left">
         {mode === 'start' ? (
-          <Field label="Squad name"><input required value={squadName} onChange={(e) => setSquadName(e.target.value)} placeholder="The Fit Check Club" className={inputCls} /></Field>
+          <Field label="Squad name"><input required value={squadName} onChange={(e) => setSquadName(e.target.value)} maxLength={40} placeholder="The Fit Check Club" className={inputCls} /></Field>
         ) : (
-          <Field label="Invite code"><input required value={code} onChange={(e) => setCode(e.target.value.toUpperCase())} maxLength={6} placeholder="ABC123" className={inputCls + ' text-center font-mono tracking-[0.3em]'} /></Field>
+          <Field label="Invite code"><input required value={code} onChange={(e) => setCode(e.target.value.toUpperCase())} maxLength={6} autoCapitalize="characters" autoComplete="off" placeholder="ABC123" className={inputCls + ' text-center font-mono tracking-[0.3em]'} /></Field>
         )}
-        <Field label="Your name in the squad"><input required value={myName} onChange={(e) => setMyName(e.target.value)} placeholder="Poppy" className={inputCls} /></Field>
+        {myName ? (
+          <p className="text-xs text-mute">You’ll show up as <span className="font-bold text-ink">{myName}</span>.</p>
+        ) : (
+          <Field label="Your name in the squad"><input required value={name} onChange={(e) => setName(e.target.value)} placeholder="Poppy" className={inputCls} /></Field>
+        )}
         <Field label="Pick your icon">
           <div className="flex flex-wrap gap-2">
             {EMOJIS.map((x) => (
@@ -100,7 +176,7 @@ function SquadSetup({ onDone }: { onDone: () => void }) {
 
 /* ---------- Invite ---------- */
 
-function InviteButton({ groupId }: { groupId: string }) {
+function InviteButton({ groupId, groupName }: { groupId: string; groupName: string }) {
   const [code, setCode] = useState<string>()
   const [busy, setBusy] = useState(false)
   const [err, setErr] = useState<string>()
@@ -111,7 +187,7 @@ function InviteButton({ groupId }: { groupId: string }) {
     try { setCode(await makeInvite(groupId)) } catch (x) { setErr((x as Error).message) } finally { setBusy(false) }
   }
   async function share() {
-    const text = `Join my Poppyseed squad! Your invite code is ${code}.`
+    const text = `Join ${groupName} on Poppyseed! Your invite code is ${code}.`
     if (navigator.share) { try { await navigator.share({ title: 'Poppyseed invite', text, url: link }) } catch { /* cancelled */ } }
     else await navigator.clipboard?.writeText(`${text} ${link}`)
   }
@@ -123,9 +199,10 @@ function InviteButton({ groupId }: { groupId: string }) {
         <Sheet onClose={() => { setCode(undefined); setErr(undefined) }}>
           {err ? <p className="text-center text-poppy">{err}</p> : (
             <div className="text-center">
-              <p className="font-bold">Give this code to one friend</p>
+              <p className="font-bold">Give this code to one person</p>
+              <p className="text-sm text-mute">It gets them into {groupName}.</p>
               <div className="my-4 font-mono text-4xl font-extrabold tracking-[0.3em] text-poppy">{code}</div>
-              <p className="text-sm text-mute">It works once and expires in 14 days. They open the app, tap "Got an invite code?", and type it in.</p>
+              <p className="text-sm text-mute">It works once and expires in 14 days. New to Poppyseed? They tap "Got an invite code?" and type it in. Already on it? Squad tab, then "Join another squad".</p>
               <button onClick={share} className="mt-4 w-full rounded-full bg-sage py-3 font-bold text-white">Share invite</button>
             </div>
           )}
@@ -135,7 +212,7 @@ function InviteButton({ groupId }: { groupId: string }) {
   )
 }
 
-/* ---------- A friend's closet ---------- */
+/* ---------- Someone's closet ---------- */
 
 function FriendCloset({ member, isMe, onBack }: { member: Member; isMe: boolean; onBack: () => void }) {
   const [items, setItems] = useState<FriendItem[]>()
@@ -211,20 +288,20 @@ function FriendItemSheet({ item, owner, isMe, onClose }: { item: FriendItem; own
   )
 }
 
-/* ---------- Borrowing board ---------- */
+/* ---------- Borrowing board (this squad only) ---------- */
 
 const STATUS_LABEL: Record<Borrow['status'], string> = {
   requested: 'Waiting', approved: 'Yes!', declined: 'Not this time', out: 'Borrowed', returned: 'Returned', cancelled: 'Cancelled',
 }
 
-function BorrowBoard({ userId, members }: { userId: string; members: Member[] }) {
-  const { list } = useBorrows(userId)
+function BorrowBoard({ userId, groupId, members }: { userId: string; groupId: string; members: Member[] }) {
+  const { list } = useBorrows(userId, groupId, members)
   const [tab, setTab] = useState<'mine' | 'asked'>('mine')
   const [cards, setCards] = useState<Awaited<ReturnType<typeof describeItems>>>(new Map())
   const ids = useMemo(() => [...new Set(list.map((b) => b.item_id))].sort().join(','), [list])
   useEffect(() => { describeItems(ids ? ids.split(',') : []).then(setCards) }, [ids])
 
-  const nameOf = (id: string) => members.find((m) => m.user_id === id)?.display_name ?? 'A friend'
+  const nameOf = (id: string) => members.find((m) => m.user_id === id)?.display_name ?? 'Someone'
   const mine = list.filter((b) => b.owner_id === userId)
   const asked = list.filter((b) => b.borrower_id === userId)
   const shown = tab === 'mine' ? mine : asked
@@ -238,7 +315,7 @@ function BorrowBoard({ userId, members }: { userId: string; members: Member[] })
         <Tab on={tab === 'asked'} onClick={() => setTab('asked')}>You asked</Tab>
       </div>
       <div className="mt-3 space-y-2">
-        {shown.length === 0 && <p className="rounded-2xl bg-white p-4 text-center text-sm text-mute ring-1 ring-black/5">{tab === 'mine' ? 'No one has asked to borrow anything yet.' : "Open a friend's closet and tap a piece to ask."}</p>}
+        {shown.length === 0 && <p className="rounded-2xl bg-white p-4 text-center text-sm text-mute ring-1 ring-black/5">{tab === 'mine' ? 'No one has asked to borrow anything yet.' : "Open someone's closet and tap a piece to ask."}</p>}
         {shown.map((b) => {
           const c = cards.get(b.item_id)
           const other = tab === 'mine' ? nameOf(b.borrower_id) : nameOf(b.owner_id)

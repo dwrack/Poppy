@@ -1,5 +1,5 @@
-import { useCallback, useEffect, useState } from 'react'
-import { supabase, BUCKET } from './supabase'
+import { useCallback, useEffect, useMemo, useState } from 'react'
+import { supabase, BUCKET, uniqueTopic } from './supabase'
 import type { Category, Colour } from '../types'
 
 export interface Group { id: string; name: string; owner_id: string; tz?: string | null }
@@ -33,35 +33,25 @@ function friendly(e: { message: string } | null) {
   return e ? new Error(e.message.replace(/^.*?: /, '')) : null
 }
 
-/** The current user's group (first one), its members, and a refresh function. */
-export function useSquad(userId: string) {
-  const [state, setState] = useState<{ loading: boolean; group?: Group; members: Member[] }>({ loading: true, members: [] })
-  const refresh = useCallback(async () => {
-    const { data: mine } = await supabase.from('group_members').select('group_id').eq('user_id', userId).limit(1)
-    const gid = mine?.[0]?.group_id
-    if (!gid) { setState({ loading: false, members: [] }); return }
-    const [{ data: g }, { data: m }] = await Promise.all([
-      supabase.from('groups').select('*').eq('id', gid).single(),
-      supabase.from('group_members').select('*').eq('group_id', gid).order('joined_at'),
-    ])
-    setState({ loading: false, group: g ?? undefined, members: (m ?? []) as Member[] })
-  }, [userId])
+// The squads themselves (every squad I am in, the active one, its members) live in squads.tsx.
 
-  useEffect(() => {
-    void refresh()
-    const ch = supabase.channel('members').on('postgres_changes', { event: '*', schema: 'public', table: 'group_members' }, () => void refresh()).subscribe()
-    return () => { void supabase.removeChannel(ch) }
-  }, [refresh])
-  return { ...state, refresh }
-}
-
-export async function createSquad(name: string, myName: string, emoji: string) {
-  const { error } = await supabase.rpc('create_group', { group_name: name, my_name: myName, my_emoji: emoji })
+/** Start a squad. Returns its id. */
+export async function createSquad(name: string, myName: string, emoji: string): Promise<string> {
+  const { data, error } = await supabase.rpc('create_group', { group_name: name, my_name: myName, my_emoji: emoji })
   if (error) throw friendly(error)
+  return data as string
 }
 
-export async function joinSquad(code: string, myName: string, emoji: string) {
-  const { error } = await supabase.rpc('join_group', { invite_code: code, my_name: myName, my_emoji: emoji })
+/** Join a squad with an invite code. Returns its id. Works when you are already in other squads. */
+export async function joinSquad(code: string, myName: string, emoji: string): Promise<string> {
+  const { data, error } = await supabase.rpc('join_group', { invite_code: code.trim().toUpperCase(), my_name: myName, my_emoji: emoji })
+  if (error) throw friendly(error)
+  return data as string
+}
+
+/** Leave a squad (only your own membership; the squad and everyone else stay). */
+export async function leaveSquad(groupId: string, userId: string) {
+  const { error } = await supabase.from('group_members').delete().eq('group_id', groupId).eq('user_id', userId)
   if (error) throw friendly(error)
 }
 
@@ -86,18 +76,37 @@ export async function loadFriendCloset(memberId: string): Promise<FriendItem[]> 
   return items
 }
 
-/** All borrow requests involving me, kept live. */
-export function useBorrows(userId: string) {
-  const [list, setList] = useState<Borrow[]>([])
+/**
+ * Borrow requests involving me in this squad only, kept live. A request made
+ * for a round belongs to that round's squad; a plain one (Squad tab) shows in
+ * every squad I share with the other person. Requests from my other squads
+ * never show here.
+ */
+export function useBorrows(userId: string, groupId: string, members: Member[]) {
+  const [state, setState] = useState<{ all: Borrow[]; groupOf: Map<string, string> }>({ all: [], groupOf: new Map() })
   const refresh = useCallback(async () => {
-    const { data } = await supabase.from('borrow_requests').select('*').order('created_at', { ascending: false })
-    setList((data ?? []) as Borrow[])
+    const { data, error } = await supabase.from('borrow_requests').select('*').order('created_at', { ascending: false })
+    if (error || !Array.isArray(data)) return
+    const all = data as Borrow[]
+    const roundIds = [...new Set(all.flatMap((b) => (b.round_id ? [b.round_id] : [])))]
+    const groupOf = new Map<string, string>()
+    if (roundIds.length) {
+      const { data: rs } = await supabase.from('rounds').select('id, group_id').in('id', roundIds)
+      for (const r of (rs ?? []) as { id: string; group_id: string }[]) groupOf.set(r.id, r.group_id)
+    }
+    setState({ all, groupOf })
   }, [])
   useEffect(() => {
     void refresh()
-    const ch = supabase.channel('borrows').on('postgres_changes', { event: '*', schema: 'public', table: 'borrow_requests' }, () => void refresh()).subscribe()
+    const ch = supabase.channel(uniqueTopic('borrows')).on('postgres_changes', { event: '*', schema: 'public', table: 'borrow_requests' }, () => void refresh()).subscribe()
     return () => { void supabase.removeChannel(ch) }
   }, [refresh, userId])
+  const list = useMemo(() => {
+    const mates = new Set(members.map((m) => m.user_id))
+    return state.all.filter((b) => (b.round_id
+      ? state.groupOf.get(b.round_id) === groupId
+      : mates.has(b.owner_id === userId ? b.borrower_id : b.owner_id)))
+  }, [state, members, groupId, userId])
   return { list, refresh }
 }
 
