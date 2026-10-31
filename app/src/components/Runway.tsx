@@ -108,9 +108,9 @@ function OpenRound({ round, userId, members, now, onAdd }: { round: Round; userI
   const [entry, setEntry] = useState<MyEntry | null>()
   const [editing, setEditing] = useState(false)
   const [submitted, setSubmitted] = useState<string[]>([])
-  const { list: borrows } = useRoundBorrows(round.id)
+  const { list: borrows, loaded: borrowsLoaded } = useRoundBorrows(round.id)
   const asked = borrows.filter((b) => b.borrower_id === userId)
-  const borrowed = useBorrowedPieces(asked, members)
+  const { pieces: borrowed, loading: borrowsLoading } = useBorrowedPieces(asked, members, borrowsLoaded)
   const { looks, refresh: refreshLooks } = useStyledLooks(round.id)
   const forMe = looks.filter((l) => l.to_user === userId)
   const sent = looks.filter((l) => l.from_user === userId)
@@ -138,7 +138,7 @@ function OpenRound({ round, userId, members, now, onAdd }: { round: Round; userI
         <RoundCard round={round} now={now} />
         <StyledLooks looks={forMe} wornId={wornId} onWear={wear} />
         <DressingRoom
-          round={round} userId={userId} members={members} asked={asked} borrowed={borrowed} sent={sent}
+          round={round} userId={userId} members={members} asked={asked} borrowed={borrowed} borrowsLoading={borrowsLoading} sent={sent}
           initial={entry?.outfit.items ?? []}
           onAdd={onAdd}
           onCancel={entry ? () => setEditing(false) : undefined}
@@ -193,8 +193,8 @@ function WhoIsIn({ members, submitted, userId }: { members: Member[]; submitted:
   )
 }
 
-function DressingRoom({ round, userId, members, asked, borrowed, sent, initial, onAdd, onCancel, onSent, onSubmit }: {
-  round: Round; userId: string; members: Member[]; asked: Borrow[]; borrowed: RemotePiece[]; sent: StyledLook[]
+function DressingRoom({ round, userId, members, asked, borrowed, borrowsLoading, sent, initial, onAdd, onCancel, onSent, onSubmit }: {
+  round: Round; userId: string; members: Member[]; asked: Borrow[]; borrowed: RemotePiece[]; borrowsLoading: boolean; sent: StyledLook[]
   initial: string[]; onAdd: () => void; onCancel?: () => void; onSent: () => void; onSubmit: (ids: string[], borrowed: string[]) => Promise<void>
 }) {
   const items = useLiveQuery(() => db.items.where('status').equals('active').reverse().sortBy('createdAt'), []) ?? []
@@ -217,8 +217,9 @@ function DressingRoom({ round, userId, members, asked, borrowed, sent, initial, 
   })
 
   async function send() {
+    if (borrowsLoading) return // a saved look's borrowed pieces are not in `worn` yet; sending now would strip them
     setBusy(true); setErr(undefined)
-    const ids = worn.map((w) => w.id) // drops anything that is no longer yours or no longer a yes
+    const ids = worn.map((w) => w.id) // drops anything that is no longer yours or no longer a yes (borrows are loaded by now)
     try { await onSubmit(ids, ids.filter((id) => borrowedIds.has(id))) } catch (x) { setErr((x as Error).message) } finally { setBusy(false) }
   }
 
@@ -274,8 +275,8 @@ function DressingRoom({ round, userId, members, asked, borrowed, sent, initial, 
 
       <div className="mt-5 flex gap-2">
         {onCancel && <button onClick={onCancel} className="flex-1 rounded-full py-3 font-bold text-mute">Keep my old look</button>}
-        <button onClick={send} disabled={busy || worn.length === 0} className="flex-1 rounded-full bg-poppy py-3 font-bold text-white shadow-lg shadow-poppy/40 disabled:opacity-40">
-          {busy ? '…' : '🚶‍♀️ Send it down the runway'}
+        <button onClick={send} disabled={busy || borrowsLoading || worn.length === 0} className="flex-1 rounded-full bg-poppy py-3 font-bold text-white shadow-lg shadow-poppy/40 disabled:opacity-40">
+          {busy || borrowsLoading ? '…' : '🚶‍♀️ Send it down the runway'}
         </button>
       </div>
       {err && <p className="mt-2 text-center text-sm text-poppy">{err}</p>}

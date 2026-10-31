@@ -9,12 +9,15 @@ import type { RemotePiece } from '../components/Stack'
 
 const friendly = (e: { message: string }) => new Error(e.message.replace(/^.*?: /, ''))
 
-/** Borrow requests tied to this round (both directions), kept live. */
+/** Borrow requests tied to this round (both directions), kept live. `loaded` is false until the first fetch for this round lands. */
 export function useRoundBorrows(roundId: string) {
   const [list, setList] = useState<Borrow[]>([])
+  const [loadedFor, setLoadedFor] = useState<string>()
   const refresh = useCallback(async () => {
-    const { data } = await supabase.from('borrow_requests').select('*').eq('round_id', roundId).order('created_at', { ascending: false })
+    const { data, error } = await supabase.from('borrow_requests').select('*').eq('round_id', roundId).order('created_at', { ascending: false })
+    if (error) return // keep what we had; never report "loaded" on a failed fetch
     setList((data ?? []) as Borrow[])
+    setLoadedFor(roundId)
   }, [roundId])
   useEffect(() => {
     void refresh()
@@ -22,26 +25,33 @@ export function useRoundBorrows(roundId: string) {
     window.addEventListener('focus', refresh)
     return () => { void supabase.removeChannel(ch); window.removeEventListener('focus', refresh) }
   }, [refresh])
-  return { list, refresh }
+  return { list, loaded: loadedFor === roundId, refresh }
 }
 
-/** Pieces I have a yes on for this round, as stackable remote pieces. */
-export function useBorrowedPieces(asked: Borrow[], members: Member[]) {
-  const [pieces, setPieces] = useState<RemotePiece[]>([])
+/**
+ * Pieces I have a yes on for this round, as stackable remote pieces. `loading`
+ * is true until the borrows have loaded AND their cards and signed URLs are in,
+ * so a caller can hold off on anything that would drop pieces it cannot see yet.
+ */
+export function useBorrowedPieces(asked: Borrow[], members: Member[], ready = true) {
+  const [got, setGot] = useState<{ key: string; pieces: RemotePiece[] }>({ key: '', pieces: [] })
   // Filtering by status means an older cancelled or declined row for the same
   // item never hides a newer yes, whatever order `asked` arrives in.
   const ok = asked.filter((b) => b.status === 'approved' || b.status === 'out')
   const key = ok.map((b) => b.item_id).sort().join(',')
   useEffect(() => {
-    if (!key) { setPieces([]); return }
+    if (!key) { setGot({ key, pieces: [] }); return }
+    let live = true
     describeItems(key.split(',')).then((cards) => {
-      setPieces([...cards.entries()].map(([id, c]) => ({
+      if (!live) return
+      setGot({ key, pieces: [...cards.entries()].map(([id, c]) => ({
         id, name: c.name, category: c.category as Category, url: c.url, owner_id: c.owner,
         owner: members.find((m) => m.user_id === c.owner)?.display_name ?? 'a friend',
-      })))
+      })) })
     })
+    return () => { live = false }
   }, [key, members])
-  return pieces
+  return { pieces: got.pieces, loading: !ready || got.key !== key }
 }
 
 export async function askToBorrowForRound(item: FriendItem, roundId: string) {
