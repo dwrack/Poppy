@@ -1,15 +1,19 @@
 import { useLiveQuery } from 'dexie-react-hooks'
 import { useCallback, useEffect, useMemo, useState, type ReactNode } from 'react'
 import { db } from '../db'
-import { useSquad, type Member } from '../lib/friends'
+import { useBorrowedPieces, useRoundBorrows, useStyledLooks, wearStyledLook, type StyledLook } from '../lib/borrowStyle'
+import { useSquad, type Borrow, type Member } from '../lib/friends'
 import {
   CHIPS, CHIP_LABEL, castVote, countdown, loadLookbook, loadMyEntry, loadMyVotes, loadResults, loadRunway,
   phaseEnds, rank, seededShuffle, setSquadTimeZone, startRoundNow, submitEntry, useRound, useSubmitted,
-  type Chip, type EntryCard, type PastRound, type Result, type Round, type Vote,
+  type Chip, type EntryCard, type MyEntry, type PastRound, type Result, type Round, type Vote,
 } from '../lib/game'
 import { useObjectUrl } from '../lib/useObjectUrl'
 import { CATEGORIES, CATEGORY_LABEL, type Category, type Item } from '../types'
+import { BorrowTab } from './BorrowTab'
 import { Chip as ChipButton } from './Chip'
+import { CardStack, LocalStack, type RemotePiece } from './Stack'
+import { StyledLooks } from './StyledLooks'
 import { ThemePick } from './ThemePick'
 import { WoreIt } from './WoreIt'
 
@@ -105,10 +109,16 @@ function Upcoming({ round, now, isOwner, groupId, onStarted }: { round: Round; n
 /* ---------- Open round: dressing room, then waiting ---------- */
 
 function OpenRound({ round, userId, members, now, onAdd }: { round: Round; userId: string; members: Member[]; now: number; onAdd: () => void }) {
-  const [entry, setEntry] = useState<{ outfit: { items: string[] } } | null>()
+  const [entry, setEntry] = useState<MyEntry | null>()
   const [editing, setEditing] = useState(false)
   // Who's in arrives over Realtime (private broadcast + entries changes), with a slow poll as the fallback.
   const { submitted, live, refresh: refreshSubmitted } = useSubmitted(round.id)
+  const { list: borrows, loaded: borrowsLoaded } = useRoundBorrows(round.id)
+  const asked = borrows.filter((b) => b.borrower_id === userId)
+  const { pieces: borrowed, loading: borrowsLoading } = useBorrowedPieces(asked, members, borrowsLoaded)
+  const { looks, refresh: refreshLooks } = useStyledLooks(round.id)
+  const forMe = looks.filter((l) => l.to_user === userId)
+  const sent = looks.filter((l) => l.from_user === userId)
 
   const load = useCallback(async () => {
     const [e] = await Promise.all([loadMyEntry(round.id, userId), refreshSubmitted()])
@@ -123,20 +133,28 @@ function OpenRound({ round, userId, members, now, onAdd }: { round: Round; userI
 
   if (entry === undefined) return <RoundCard round={round} now={now} />
 
+  const wear = async (look: StyledLook) => { await wearStyledLook(round.id, userId, look); setEditing(false); await Promise.all([load(), refreshLooks()]) }
+  const wornId = entry?.styled_look_id ?? null
+
   if (!entry || editing) {
     return (
       <>
         <RoundCard round={round} now={now} />
+        <StyledLooks looks={forMe} wornId={wornId} onWear={wear} />
         <DressingRoom
+          round={round} userId={userId} members={members} asked={asked} borrowed={borrowed} borrowsLoading={borrowsLoading} sent={sent}
           initial={entry?.outfit.items ?? []}
           onAdd={onAdd}
           onCancel={entry ? () => setEditing(false) : undefined}
-          onSubmit={async (ids) => { await submitEntry(round.id, userId, ids); setEditing(false); await load() }}
+          onSent={refreshLooks}
+          onSubmit={async (ids, b) => { await submitEntry(round.id, userId, ids, b); setEditing(false); await load() }}
         />
       </>
     )
   }
 
+  const styledBy = wornId ? forMe.find((l) => l.id === wornId)?.from_name : undefined
+  const lent = borrowed.filter((p) => entry.outfit.items.includes(p.id))
   return (
     <>
       <RoundCard round={round} now={now} />
@@ -146,10 +164,13 @@ function OpenRound({ round, userId, members, now, onAdd }: { round: Round; userI
           <button onClick={() => setEditing(true)} className="text-sm font-bold text-poppy">Change it</button>
         </div>
         <div className="mt-3 flex justify-center">
-          <LocalStack ids={entry.outfit.items} className="h-72 w-56" />
+          <LocalStack ids={entry.outfit.items} remote={borrowed} className="h-72 w-56" />
         </div>
+        {styledBy && <p className="mt-2 text-center text-xs font-bold text-poppy">✨ Styled by {styledBy}</p>}
+        {lent.length > 0 && <p className="mt-1 text-center text-xs text-mute">Borrowed: {lent.map((p) => `${p.name} from ${p.owner}`).join(', ')}</p>}
         <p className="mt-3 text-center text-xs text-mute">Nobody sees it until the runway. No copying possible.</p>
       </section>
+      <StyledLooks looks={forMe} wornId={wornId} onWear={wear} />
       <WhoIsIn members={members} submitted={submitted} userId={userId} live={live} />
     </>
   )
@@ -181,9 +202,13 @@ function WhoIsIn({ members, submitted, userId, live }: { members: Member[]; subm
   )
 }
 
-function DressingRoom({ initial, onAdd, onCancel, onSubmit }: { initial: string[]; onAdd: () => void; onCancel?: () => void; onSubmit: (ids: string[]) => Promise<void> }) {
+function DressingRoom({ round, userId, members, asked, borrowed, borrowsLoading, sent, initial, onAdd, onCancel, onSent, onSubmit }: {
+  round: Round; userId: string; members: Member[]; asked: Borrow[]; borrowed: RemotePiece[]; borrowsLoading: boolean; sent: StyledLook[]
+  initial: string[]; onAdd: () => void; onCancel?: () => void; onSent: () => void; onSubmit: (ids: string[], borrowed: string[]) => Promise<void>
+}) {
   const items = useLiveQuery(() => db.items.where('status').equals('active').reverse().sortBy('createdAt'), []) ?? []
   const [picked, setPicked] = useState<string[]>(initial)
+  const [pane, setPane] = useState<'closet' | 'borrow'>('closet')
   const [cat, setCat] = useState<Category | 'all'>('all')
   const [busy, setBusy] = useState(false)
   const [err, setErr] = useState<string>()
@@ -191,10 +216,20 @@ function DressingRoom({ initial, onAdd, onCancel, onSubmit }: { initial: string[
   // A piece added mid-round lands in the closet first, then shows up here, newest first.
   const visible = items.filter((i) => cat === 'all' || i.category === cat)
   const toggle = (id: string) => setPicked((p) => (p.includes(id) ? p.filter((x) => x !== id) : p.length >= 8 ? p : [...p, id]))
+  const borrowedIds = new Set(borrowed.map((p) => p.id))
+  // What is on the stack right now, in order, with who lent it.
+  const worn = picked.flatMap((id) => {
+    const mine = items.find((i) => i.id === id)
+    if (mine) return [{ id, label: mine.name || CATEGORY_LABEL[mine.category] }]
+    const b = borrowed.find((p) => p.id === id)
+    return b ? [{ id, label: `${b.name} · from ${b.owner}` }] : []
+  })
 
   async function send() {
+    if (borrowsLoading) return // a saved look's borrowed pieces are not in `worn` yet; sending now would strip them
     setBusy(true); setErr(undefined)
-    try { await onSubmit(picked) } catch (x) { setErr((x as Error).message) } finally { setBusy(false) }
+    const ids = worn.map((w) => w.id) // drops anything that is no longer yours or no longer a yes (borrows are loaded by now)
+    try { await onSubmit(ids, ids.filter((id) => borrowedIds.has(id))) } catch (x) { setErr((x as Error).message) } finally { setBusy(false) }
   }
 
   return (
@@ -205,31 +240,52 @@ function DressingRoom({ initial, onAdd, onCancel, onSubmit }: { initial: string[
           <span className="text-xs font-bold text-mute">{picked.length}/8 pieces</span>
         </div>
         <div className="mt-3 flex justify-center">
-          <LocalStack ids={picked} className="h-72 w-56" />
+          <LocalStack ids={picked} remote={borrowed} className="h-72 w-56" />
         </div>
+        {worn.length > 0 && (
+          <div className="mt-3 flex flex-wrap justify-center gap-1.5">
+            {worn.map((w) => (
+              <button key={w.id} onClick={() => toggle(w.id)} className={'rounded-full px-2.5 py-1 text-[11px] font-bold ' + (borrowedIds.has(w.id) ? 'bg-butter text-ink' : 'bg-cream text-ink/80')}>{w.label} ×</button>
+            ))}
+          </div>
+        )}
         <p className="mt-2 text-center text-xs text-mute">Tap pieces below to put them on. Tap again to take off.</p>
       </div>
 
-      <div className="-mx-4 mt-4 flex gap-2 overflow-x-auto px-4 pb-1 [scrollbar-width:none]">
-        <ChipButton on={cat === 'all'} onClick={() => setCat('all')}>All</ChipButton>
-        {CATEGORIES.filter((c) => items.some((i) => i.category === c)).map((c) => (
-          <ChipButton key={c} on={cat === c} onClick={() => setCat(c)}>{CATEGORY_LABEL[c]}</ChipButton>
+      <div className="mt-4 flex rounded-full bg-white p-1 ring-1 ring-black/10">
+        {(['closet', 'borrow'] as const).map((p) => (
+          <button key={p} onClick={() => setPane(p)} className={'flex-1 rounded-full py-2 text-sm font-bold ' + (pane === p ? 'bg-ink text-white' : 'text-mute')}>
+            {p === 'closet' ? '🧥 My closet' : `🙋 Borrow${borrowed.length ? ` · ${borrowed.length}` : ''}`}
+          </button>
         ))}
       </div>
 
-      <div className="mt-3 grid grid-cols-3 gap-3">
-        <button onClick={onAdd} className="flex aspect-square flex-col items-center justify-center gap-1 rounded-2xl border-2 border-dashed border-poppy/50 bg-poppy/5 text-poppy active:scale-[0.98]">
-          <span className="text-3xl">📸</span>
-          <span className="text-xs font-bold">Add a piece</span>
-        </button>
-        {visible.map((i) => <PickTile key={i.id} item={i} n={picked.indexOf(i.id) + 1} onClick={() => toggle(i.id)} />)}
-      </div>
-      {items.length === 0 && <p className="mt-4 text-center text-sm text-mute">Your closet is empty. Add a few pieces and they’ll show up here.</p>}
+      {pane === 'borrow' ? (
+        <BorrowTab roundId={round.id} userId={userId} members={members} asked={asked} borrowed={borrowed} sent={sent} picked={picked} onToggle={toggle} onSent={onSent} />
+      ) : (
+        <>
+          <div className="-mx-4 mt-4 flex gap-2 overflow-x-auto px-4 pb-1 [scrollbar-width:none]">
+            <ChipButton on={cat === 'all'} onClick={() => setCat('all')}>All</ChipButton>
+            {CATEGORIES.filter((c) => items.some((i) => i.category === c)).map((c) => (
+              <ChipButton key={c} on={cat === c} onClick={() => setCat(c)}>{CATEGORY_LABEL[c]}</ChipButton>
+            ))}
+          </div>
+
+          <div className="mt-3 grid grid-cols-3 gap-3">
+            <button onClick={onAdd} className="flex aspect-square flex-col items-center justify-center gap-1 rounded-2xl border-2 border-dashed border-poppy/50 bg-poppy/5 text-poppy active:scale-[0.98]">
+              <span className="text-3xl">📸</span>
+              <span className="text-xs font-bold">Add a piece</span>
+            </button>
+            {visible.map((i) => <PickTile key={i.id} item={i} n={picked.indexOf(i.id) + 1} onClick={() => toggle(i.id)} />)}
+          </div>
+          {items.length === 0 && <p className="mt-4 text-center text-sm text-mute">Your closet is empty. Add a few pieces and they’ll show up here.</p>}
+        </>
+      )}
 
       <div className="mt-5 flex gap-2">
         {onCancel && <button onClick={onCancel} className="flex-1 rounded-full py-3 font-bold text-mute">Keep my old look</button>}
-        <button onClick={send} disabled={busy || picked.length === 0} className="flex-1 rounded-full bg-poppy py-3 font-bold text-white shadow-lg shadow-poppy/40 disabled:opacity-40">
-          {busy ? '…' : '🚶‍♀️ Send it down the runway'}
+        <button onClick={send} disabled={busy || borrowsLoading || worn.length === 0} className="flex-1 rounded-full bg-poppy py-3 font-bold text-white shadow-lg shadow-poppy/40 disabled:opacity-40">
+          {busy || borrowsLoading ? '…' : '🚶‍♀️ Send it down the runway'}
         </button>
       </div>
       {err && <p className="mt-2 text-center text-sm text-poppy">{err}</p>}
@@ -249,62 +305,6 @@ function PickTile({ item, n, onClick }: { item: Item; n: number; onClick: () => 
       <div className="mt-1 truncate px-0.5 text-xs font-semibold">{item.name || CATEGORY_LABEL[item.category]}</div>
     </button>
   )
-}
-
-/* ---------- The cutout stack (avatar stand-in for step 1) ---------- */
-
-const POS: Record<Category, string> = {
-  hat: 'top-0 left-1/2 -translate-x-1/2 h-[22%] w-[45%] z-20',
-  scarf: 'top-[14%] left-1/2 -translate-x-1/2 h-[22%] w-[42%] z-30',
-  outerwear: 'top-[16%] left-[56%] -translate-x-1/2 h-[46%] w-[72%] z-30',
-  top: 'top-[18%] left-1/2 -translate-x-1/2 h-[38%] w-[62%] z-20',
-  dress: 'top-[18%] left-1/2 -translate-x-1/2 h-[60%] w-[62%] z-20',
-  bottom: 'top-[50%] left-1/2 -translate-x-1/2 h-[36%] w-[55%] z-10',
-  shoes: 'bottom-0 left-1/2 -translate-x-1/2 h-[18%] w-[45%] z-20',
-  bag: 'top-[46%] left-[1%] h-[26%] w-[30%] z-30',
-  accessory: 'top-[6%] right-[2%] h-[16%] w-[22%] z-30',
-}
-
-type Layer = { key: string; category: Category; url?: string; blob?: Blob }
-
-function Stack({ layers, className }: { layers: Layer[]; className: string }) {
-  const seen: Partial<Record<Category, number>> = {}
-  return (
-    <div className={'relative overflow-hidden rounded-blob bg-gradient-to-b from-butter/40 to-peach/20 ring-1 ring-black/5 ' + className}>
-      {layers.length === 0 && <div className="flex h-full flex-col items-center justify-center text-mute"><span className="text-5xl">🧍‍♀️</span><span className="mt-1 text-xs font-semibold">Nothing on yet</span></div>}
-      {layers.map((l) => {
-        const nth = seen[l.category] ?? 0
-        seen[l.category] = nth + 1
-        return <StackLayer key={l.key} layer={l} offset={nth} />
-      })}
-    </div>
-  )
-}
-
-function StackLayer({ layer, offset }: { layer: Layer; offset: number }) {
-  const local = useObjectUrl(layer.blob)
-  const src = layer.url ?? local
-  if (!src) return null
-  return (
-    <img
-      src={src}
-      alt=""
-      className={'pop absolute object-contain drop-shadow-md ' + POS[layer.category]}
-      style={offset ? { transform: `translate(${-50 + offset * 14}%, ${offset * 6}%)` } : undefined}
-    />
-  )
-}
-
-/** Stack built from the local closet (my own look). */
-function LocalStack({ ids, className }: { ids: string[]; className: string }) {
-  const items = useLiveQuery(() => db.items.bulkGet(ids), [ids.join(',')]) ?? []
-  const layers: Layer[] = items.flatMap((i) => (i ? [{ key: i.id, category: i.category, blob: i.cutout }] : []))
-  return <Stack layers={layers} className={className} />
-}
-
-/** Stack built from a runway card (anyone's look, signed URLs). */
-function CardStack({ card, className }: { card: EntryCard; className: string }) {
-  return <Stack layers={card.pieces.map((p) => ({ key: p.id, category: p.category, url: p.url }))} className={className} />
 }
 
 /* ---------- Reveal + voting ---------- */
@@ -358,6 +358,7 @@ function Show({ round, userId, now }: { round: Round; userId: string; now: numbe
               <span className="text-2xl">{card.emoji}</span>
               <span className="text-lg font-extrabold">{card.user_id === userId ? 'You' : card.display_name}</span>
             </div>
+            <Credits card={card} />
             {card.user_id === userId ? (
               <p className="mt-2 text-center text-sm text-mute">That’s you ✨ No voting for yourself.</p>
             ) : (
@@ -398,6 +399,18 @@ function Show({ round, userId, now }: { round: Round; userId: string; now: numbe
           : `You’ve voted on ${mineVoted} of ${others.length}. Scores stay sealed until everyone’s voted, or ${new Date(round.voting_ends_at).toLocaleString(undefined, { weekday: 'short', hour: 'numeric', minute: '2-digit' })}.`}
       </p>
     </>
+  )
+}
+
+/** Who styled it and who lent what, under a runway card. */
+function Credits({ card }: { card: EntryCard }) {
+  const lent = card.pieces.filter((p) => p.owner_id !== card.user_id)
+  if (!card.styled_by && lent.length === 0) return null
+  return (
+    <div className="mt-1 text-center text-xs">
+      {card.styled_by && <div className="font-bold text-poppy">✨ styled by {card.styled_by}</div>}
+      {lent.length > 0 && <div className="text-mute">borrowed from {[...new Set(lent.map((p) => p.owner))].join(' & ')}</div>}
+    </div>
   )
 }
 
@@ -476,6 +489,7 @@ function Podium({ round, cards, results, userId, confetti, title, children }: { 
             </div>
             <div className="mt-1 text-center text-xs font-bold">
               {b.rows.map((r) => (r.card.user_id === userId ? 'You' : r.card.display_name)).join(' & ')}
+              {b.rows.some((r) => r.card.styled_by) && <div className="text-[10px] text-poppy">✨ styled by {b.rows.flatMap((r) => (r.card.styled_by ? [r.card.styled_by] : [])).join(' & ')}</div>}
               <div className="text-mute">{b.rows[0].result.total} ⭐</div>
             </div>
             <div className={'mt-1 flex w-full items-start justify-center rounded-t-xl pt-1 text-xl ' + heights[b.place] + ' ' + (b.place === 1 ? 'bg-butter' : 'bg-cream')}>
@@ -489,7 +503,7 @@ function Podium({ round, cards, results, userId, confetti, title, children }: { 
         {ranked.map((r) => (
           <li key={r.card.entry_id} className="flex items-center gap-2 rounded-xl bg-cream px-3 py-2 text-sm">
             <span className="w-6 font-extrabold text-mute">{r.place}</span>
-            <span className="flex-1 truncate font-semibold">{r.card.emoji} {r.card.user_id === userId ? 'You' : r.card.display_name}</span>
+            <span className="flex-1 truncate font-semibold">{r.card.emoji} {r.card.user_id === userId ? 'You' : r.card.display_name}{r.card.styled_by && <span className="text-xs font-bold text-poppy"> · styled by {r.card.styled_by}</span>}</span>
             <span className="flex flex-wrap justify-end gap-1">
               {(Object.entries(r.result.chips) as [Chip, number][]).map(([c, n]) => (
                 <span key={c} className="rounded-full bg-white px-2 py-0.5 text-[11px] font-bold ring-1 ring-black/5">{CHIP_LABEL[c]}{n > 1 ? ` ×${n}` : ''}</span>
