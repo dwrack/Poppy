@@ -28,6 +28,8 @@ export function useRoundBorrows(roundId: string) {
 /** Pieces I have a yes on for this round, as stackable remote pieces. */
 export function useBorrowedPieces(asked: Borrow[], members: Member[]) {
   const [pieces, setPieces] = useState<RemotePiece[]>([])
+  // Filtering by status means an older cancelled or declined row for the same
+  // item never hides a newer yes, whatever order `asked` arrives in.
   const ok = asked.filter((b) => b.status === 'approved' || b.status === 'out')
   const key = ok.map((b) => b.item_id).sort().join(',')
   useEffect(() => {

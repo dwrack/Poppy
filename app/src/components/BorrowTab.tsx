@@ -86,7 +86,10 @@ function FriendRack({ roundId, friend, asked, sent, picked, onToggle, onSent }: 
 
   if (styling) return <StyleFriend roundId={roundId} friend={friend} items={items} onDone={() => { setStyling(false); onSent() }} onCancel={() => setStyling(false)} />
 
-  const byItem = new Map(asked.filter((b) => b.owner_id === friend.user_id).map((b) => [b.item_id, b]))
+  // `asked` is newest first. A piece can have several requests (asked, cancelled,
+  // asked again), and the newest one is the one that counts, so build the map
+  // oldest first and let later rows overwrite earlier ones.
+  const byItem = new Map([...asked].reverse().filter((b) => b.owner_id === friend.user_id).map((b) => [b.item_id, b]))
 
   return (
     <section className="mt-3">
