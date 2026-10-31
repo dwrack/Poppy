@@ -1,7 +1,8 @@
 import { useCallback, useEffect, useState } from 'react'
 import { supabase } from './supabase'
 import { signPaths } from './friends'
-import type { Category } from '../types'
+import { loadLooks } from './avatarSync'
+import { DEFAULT_LOOK, garmentOf, slotOf, type AvatarLook, type Category, type Colour, type Pattern, type Outfit as AvatarOutfit } from '../types'
 
 /* ---------- Types ---------- */
 
@@ -11,11 +12,14 @@ export interface Round {
   opens_at: string; closes_at: string; reveal_at: string; voting_ends_at: string
   status: RoundStatus; picked_by: string | null
 }
-export interface Piece { id: string; name: string; category: Category; cutout_path: string; url?: string }
+/** colours and pattern arrive once v4b-avatar-runway.sql is pasted; before that the avatar wears grey */
+export interface Piece { id: string; name: string; category: Category; cutout_path: string; url?: string; colours?: Colour[]; pattern?: Pattern }
 export interface Outfit { items: string[]; borrowed?: string[] }
 export interface EntryCard {
   entry_id: string; user_id: string; display_name: string; emoji: string; outfit: Outfit
   photo_path: string | null; photoUrl?: string; submitted_at: string; pieces: Piece[]
+  /** the entrant's avatar presets; the default look when she has not set any */
+  look: AvatarLook
 }
 export const CHIPS = ['colour', 'on theme', 'brave', 'fit', 'shoes'] as const
 export type Chip = (typeof CHIPS)[number]
@@ -159,11 +163,26 @@ export async function loadSubmitted(roundId: string): Promise<string[]> {
   return (data ?? []) as string[]
 }
 
+type AvatarRow = { face: string; skin: string; hair: string; hair_colour: string; eyes: string } | null
+
 /** Entries with their pieces and signed photo links. Before the reveal the server returns only your own. */
 export async function loadRunway(roundId: string): Promise<EntryCard[]> {
-  const { data, error } = await supabase.rpc('round_entry_cards', { r: roundId })
-  if (error || !data) return []
-  const cards = data as EntryCard[]
+  // v2 carries colours, pattern and avatar presets; fall back to v1 until v4b-avatar-runway.sql is pasted
+  let rows: (Omit<EntryCard, 'look'> & { avatar?: AvatarRow })[] | null = null
+  const v2 = await supabase.rpc('round_entry_cards_v2', { r: roundId })
+  if (!v2.error && v2.data) rows = v2.data
+  else {
+    const v1 = await supabase.rpc('round_entry_cards', { r: roundId })
+    if (v1.error || !v1.data) return []
+    rows = v1.data
+  }
+  if (!rows) return []
+  const fallback = rows.some((c) => c.avatar === undefined) ? await loadLooks([...new Set(rows.map((c) => c.user_id))]) : null
+  const cards: EntryCard[] = rows.map(({ avatar, ...c }) => ({
+    ...c,
+    look: avatar ? { face: avatar.face, skin: avatar.skin, hair: avatar.hair, hairColour: avatar.hair_colour, eyes: avatar.eyes } as AvatarLook
+      : fallback?.get(c.user_id) ?? DEFAULT_LOOK,
+  }))
   const paths = cards.flatMap((c) => [...c.pieces.map((p) => p.cutout_path), ...(c.photo_path ? [c.photo_path] : [])])
   if (paths.length) {
     const byPath = await signPaths(paths)
@@ -173,6 +192,17 @@ export async function loadRunway(roundId: string): Promise<EntryCard[]> {
     }
   }
   return cards
+}
+
+/** The avatar's outfit from a card's pieces: first piece per slot wins, a dress outranks top and bottom on the rig. */
+export function outfitOf(card: Pick<EntryCard, 'pieces'>): AvatarOutfit {
+  const o: AvatarOutfit = {}
+  for (const p of card.pieces) {
+    const s = slotOf(p.category)
+    if (!s || o[s]) continue
+    o[s] = garmentOf({ id: p.id, name: p.name, notes: '', colours: p.colours ?? ['grey'], pattern: p.pattern ?? 'solid' })
+  }
+  return o
 }
 
 /* ---------- Votes ---------- */
