@@ -1,16 +1,18 @@
 import { useLiveQuery } from 'dexie-react-hooks'
-import { useState } from 'react'
+import { Suspense, useState } from 'react'
 import { db } from '../db'
 import { CATEGORIES, CATEGORY_LABEL, type Category, type Item } from '../types'
 import { Chip } from './Chip'
 import { ItemCard } from './ItemCard'
 import { ItemSheet } from './ItemSheet'
+import { LazyDressMe } from './avatarLazy'
 
 export function Closet({ onAdd }: { onAdd: () => void }) {
   const items = useLiveQuery(() => db.items.orderBy('createdAt').reverse().toArray(), []) ?? []
   const [cat, setCat] = useState<Category | 'all'>('all')
   const [showHidden, setShowHidden] = useState(false)
   const [openId, setOpenId] = useState<string>()
+  const [dressing, setDressing] = useState(false)
 
   const visible = items.filter((i) => (cat === 'all' || i.category === cat) && (showHidden || i.status === 'active'))
   const open = items.find((i) => i.id === openId)
@@ -24,9 +26,14 @@ export function Closet({ onAdd }: { onAdd: () => void }) {
             <h1 className="text-2xl font-extrabold">Closet</h1>
             <p className="text-sm text-mute">{items.length === 0 ? 'Nothing here yet' : `${items.length} ${items.length === 1 ? "piece" : "pieces"}`}</p>
           </div>
-          <button onClick={() => setShowHidden((v) => !v)} className="text-sm font-semibold text-mute">
-            {showHidden ? 'Hide wash & away' : 'Show all'}
-          </button>
+          <div className="flex items-center gap-3">
+            <button onClick={() => setShowHidden((v) => !v)} className="text-sm font-semibold text-mute">
+              {showHidden ? 'Hide wash & away' : 'Show all'}
+            </button>
+            <button onClick={() => setDressing(true)} className="rounded-full bg-ink px-3 py-1.5 text-sm font-bold text-white shadow" data-testid="dress-me-button">
+              ✨ Dress me
+            </button>
+          </div>
         </div>
         <div className="flex gap-2 overflow-x-auto px-4 py-3 [scrollbar-width:none]">
           <Chip on={cat === 'all'} onClick={() => setCat('all')}>All</Chip>
@@ -57,6 +64,11 @@ export function Closet({ onAdd }: { onAdd: () => void }) {
       </button>
 
       {open && <ItemSheet item={open} onClose={() => setOpenId(undefined)} />}
+      {dressing && (
+        <Suspense fallback={<div className="fixed inset-0 z-30 flex items-center justify-center bg-cream text-sm font-semibold text-mute">Opening the dressing room…</div>}>
+          <LazyDressMe onClose={() => setDressing(false)} />
+        </Suspense>
+      )}
     </div>
   )
 }

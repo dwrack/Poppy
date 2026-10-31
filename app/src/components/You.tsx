@@ -1,12 +1,16 @@
 import { useLiveQuery } from 'dexie-react-hooks'
-import { useEffect, useState, type ReactNode } from 'react'
+import { Suspense, useEffect, useState, type ReactNode } from 'react'
 import { db } from '../db'
 import { addMeasurement, deleteMeasurement, saveProfile } from '../lib/profileSync'
+import { presetsToLook, saveAvatar } from '../lib/avatarSync'
+import { LazyAvatarScene } from './avatarLazy'
 import { supabase } from '../lib/supabase'
 import { syncNow } from '../lib/sync'
 import { MePhotos } from './MePhotos'
 import { useStars } from '../lib/game'
-import { MEASURE_FIELDS, type MeasureField, type Profile } from '../types'
+import {
+  AVATAR_EYES, AVATAR_FACES, AVATAR_HAIR_COLOURS, AVATAR_HAIRS, AVATAR_SKINS, MEASURE_FIELDS, type AvatarLook, type MeasureField, type Profile,
+} from '../types'
 
 const HAIR = ['black', 'dark brown', 'brown', 'light brown', 'auburn', 'red', 'blonde', 'grey', 'other']
 const EYES = ['brown', 'hazel', 'green', 'blue', 'grey', 'other']
@@ -25,6 +29,7 @@ export function You({ email, userId }: { email?: string; userId: string }) {
       <h1 className="text-2xl font-extrabold">You</h1>
       <p className="mb-5 text-sm text-mute">{email}</p>
       <StarsCard userId={userId} />
+      <AvatarCard heightIn={profile?.heightIn} />
       <MePhotos userId={userId} />
       {loaded && <ProfileForm key={profile?.updatedAt ?? 0} profile={profile} />}
       <Measurements />
@@ -166,6 +171,62 @@ function Measurements() {
         </details>
       )}
     </Card>
+  )
+}
+
+function AvatarCard({ heightIn }: { heightIn?: number }) {
+  const presets = useLiveQuery(() => db.avatar.get('me'), [])
+  const [show, setShow] = useState(false)
+  const look = presetsToLook(presets)
+  const set = (patch: Partial<AvatarLook>) => void saveAvatar(patch)
+  return (
+    <Card title="My avatar" hint="She walks the runway in your real clothes. Pick her face, skin, hair and eyes; your height sizes her.">
+      {show ? (
+        <div className="relative mb-3 h-64 overflow-hidden rounded-2xl bg-gradient-to-b from-white to-butter/50 ring-1 ring-black/5" data-testid="avatar-preview">
+          <Suspense fallback={<div className="flex h-full items-center justify-center text-sm text-mute">Loading her…</div>}>
+            <LazyAvatarScene look={look} heightIn={heightIn} compact />
+          </Suspense>
+        </div>
+      ) : (
+        <button onClick={() => setShow(true)} className="mb-3 w-full rounded-2xl bg-cream py-3 font-bold ring-1 ring-black/10" data-testid="avatar-show">🪞 Show me</button>
+      )}
+      <PickRow label="Face">
+        {AVATAR_FACES.map((f) => <Swatch key={f.id} on={look.face === f.id} onClick={() => set({ face: f.id })} title={f.label}><span className="text-xl">{f.emoji}</span></Swatch>)}
+      </PickRow>
+      <PickRow label="Skin">
+        {AVATAR_SKINS.map((s) => <Swatch key={s.id} on={look.skin === s.id} onClick={() => set({ skin: s.id })} title={s.id} hex={s.hex} />)}
+      </PickRow>
+      <PickRow label="Hair">
+        {AVATAR_HAIRS.map((h) => (
+          <button key={h.id} onClick={() => set({ hair: h.id })} className={'shrink-0 rounded-full px-3 py-1.5 text-xs font-bold ' + (look.hair === h.id ? 'bg-ink text-white' : 'bg-cream ring-1 ring-black/10')}>{h.label}</button>
+        ))}
+      </PickRow>
+      <PickRow label="Hair colour">
+        {AVATAR_HAIR_COLOURS.map((c) => <Swatch key={c.id} on={look.hairColour === c.id} onClick={() => set({ hairColour: c.id })} title={c.id} hex={c.hex} />)}
+      </PickRow>
+      <PickRow label="Eyes">
+        {AVATAR_EYES.map((c) => <Swatch key={c.id} on={look.eyes === c.id} onClick={() => set({ eyes: c.id })} title={c.id} hex={c.hex} />)}
+      </PickRow>
+    </Card>
+  )
+}
+
+function PickRow({ label, children }: { label: string; children: ReactNode }) {
+  return (
+    <div className="py-1.5">
+      <div className="mb-1.5 text-xs font-bold tracking-wide text-mute uppercase">{label}</div>
+      <div className="flex gap-2 overflow-x-auto pb-1 [scrollbar-width:none]">{children}</div>
+    </div>
+  )
+}
+
+function Swatch({ on, onClick, title, hex, children }: { on: boolean; onClick: () => void; title: string; hex?: string; children?: ReactNode }) {
+  return (
+    <button onClick={onClick} title={title} aria-label={title} aria-pressed={on}
+      className={'flex h-9 w-9 shrink-0 items-center justify-center rounded-full ' + (on ? 'ring-[3px] ring-poppy' : 'ring-1 ring-black/10')}
+      style={hex ? { backgroundColor: hex } : undefined}>
+      {children}
+    </button>
   )
 }
 
