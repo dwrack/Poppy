@@ -250,7 +250,7 @@ function BorrowBoard({ userId, members }: { userId: string; members: Member[] })
                   <span className="truncate font-bold">{c?.name || (c ? CATEGORY_LABEL[c.category as keyof typeof CATEGORY_LABEL] : 'A piece')}</span>
                   <span className="shrink-0 rounded-full bg-cream px-2 py-0.5 text-[11px] font-bold">{STATUS_LABEL[b.status]}</span>
                 </div>
-                <p className="text-xs text-mute">{tab === 'mine' ? `${other} wants it` : `From ${other}`}{b.needed_on ? ` · for ${fmt(b.needed_on)}` : ''}</p>
+                <p className="text-xs text-mute">{tab === 'mine' ? `${other} wants it` : `From ${other}`}{b.needed_on ? ` · for ${fmt(b.needed_on)}` : ''}{b.round_id ? ' · 🏆 for this week’s runway' : ''}</p>
                 {b.note && <p className="mt-0.5 text-sm">“{b.note}”</p>}
                 <BorrowActions b={b} owner={tab === 'mine'} />
               </div>

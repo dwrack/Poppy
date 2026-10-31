@@ -1,0 +1,104 @@
+import { useCallback, useEffect, useState } from 'react'
+import { supabase } from './supabase'
+import { describeItems, signPaths, type Borrow, type FriendItem, type Member } from './friends'
+import type { Chip } from './game'
+import type { Category } from '../types'
+import type { RemotePiece } from '../components/Stack'
+
+/* ---------- Borrow for the round ---------- */
+
+const friendly = (e: { message: string }) => new Error(e.message.replace(/^.*?: /, ''))
+
+/** Borrow requests tied to this round (both directions), kept live. */
+export function useRoundBorrows(roundId: string) {
+  const [list, setList] = useState<Borrow[]>([])
+  const refresh = useCallback(async () => {
+    const { data } = await supabase.from('borrow_requests').select('*').eq('round_id', roundId).order('created_at', { ascending: false })
+    setList((data ?? []) as Borrow[])
+  }, [roundId])
+  useEffect(() => {
+    void refresh()
+    const ch = supabase.channel('round-borrows').on('postgres_changes', { event: '*', schema: 'public', table: 'borrow_requests' }, () => void refresh()).subscribe()
+    window.addEventListener('focus', refresh)
+    return () => { void supabase.removeChannel(ch); window.removeEventListener('focus', refresh) }
+  }, [refresh])
+  return { list, refresh }
+}
+
+/** Pieces I have a yes on for this round, as stackable remote pieces. */
+export function useBorrowedPieces(asked: Borrow[], members: Member[]) {
+  const [pieces, setPieces] = useState<RemotePiece[]>([])
+  const ok = asked.filter((b) => b.status === 'approved' || b.status === 'out')
+  const key = ok.map((b) => b.item_id).sort().join(',')
+  useEffect(() => {
+    if (!key) { setPieces([]); return }
+    describeItems(key.split(',')).then((cards) => {
+      setPieces([...cards.entries()].map(([id, c]) => ({
+        id, name: c.name, category: c.category as Category, url: c.url, owner_id: c.owner,
+        owner: members.find((m) => m.user_id === c.owner)?.display_name ?? 'a friend',
+      })))
+    })
+  }, [key, members])
+  return pieces
+}
+
+export async function askToBorrowForRound(item: FriendItem, roundId: string) {
+  const { error } = await supabase.from('borrow_requests').insert({ item_id: item.id, owner_id: item.user_id, round_id: roundId })
+  if (error) throw friendly(error)
+}
+
+/** A friend's closet, throwing when the network is down so the UI can say so. */
+export async function loadFriendRack(memberId: string): Promise<FriendItem[]> {
+  const { data, error } = await supabase.rpc('friend_items', { member: memberId })
+  if (error) throw friendly(error)
+  const items = (data ?? []) as FriendItem[]
+  if (items.length) {
+    const byPath = await signPaths(items.map((i) => i.cutout_path))
+    for (const i of items) i.cutoutUrl = byPath.get(i.cutout_path)
+  }
+  return items.filter((i) => i.status !== 'archived')
+}
+
+/* ---------- Style a friend ---------- */
+
+export type LookStatus = 'sent' | 'worn' | 'declined'
+export interface StyledLook {
+  id: string; round_id: string; from_user: string; to_user: string; item_ids: string[]; message_chip: Chip
+  status: LookStatus; created_at: string; from_name: string; to_name: string
+}
+
+/** Looks sent to me or by me this round, kept live. Mine-sent come back as 'sent' until the reveal. */
+export function useStyledLooks(roundId: string) {
+  const [looks, setLooks] = useState<StyledLook[]>([])
+  const refresh = useCallback(async () => {
+    const { data } = await supabase.rpc('styled_looks_for_round', { r: roundId })
+    setLooks((data ?? []) as StyledLook[])
+  }, [roundId])
+  useEffect(() => {
+    void refresh()
+    const ch = supabase.channel('styled-looks').on('postgres_changes', { event: '*', schema: 'public', table: 'styled_looks' }, () => void refresh()).subscribe()
+    window.addEventListener('focus', refresh)
+    return () => { void supabase.removeChannel(ch); window.removeEventListener('focus', refresh) }
+  }, [refresh])
+  return { looks, refresh }
+}
+
+export async function sendStyledLook(roundId: string, toUser: string, itemIds: string[], chip: Chip) {
+  const { error } = await supabase.from('styled_looks').insert({ round_id: roundId, to_user: toUser, item_ids: itemIds, message_chip: chip })
+  if (error) throw friendly(error)
+}
+
+export async function answerStyledLook(id: string, status: Exclude<LookStatus, 'sent'>) {
+  const { error } = await supabase.from('styled_looks').update({ status }).eq('id', id)
+  if (error) throw friendly(error)
+}
+
+/** Wear a styled look as my entry: the entry first (so the policy checks it is mine), then mark it worn. */
+export async function wearStyledLook(roundId: string, userId: string, look: StyledLook) {
+  const { error } = await supabase.from('entries').upsert(
+    { round_id: roundId, user_id: userId, outfit: { items: look.item_ids, borrowed: [] }, styled_look_id: look.id, submitted_at: new Date().toISOString() },
+    { onConflict: 'round_id,user_id' },
+  )
+  if (error) throw friendly(error)
+  await answerStyledLook(look.id, 'worn')
+}

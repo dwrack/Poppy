@@ -11,7 +11,7 @@ export interface FriendItem {
 export type BorrowStatus = 'requested' | 'approved' | 'declined' | 'out' | 'returned' | 'cancelled'
 export interface Borrow {
   id: string; item_id: string; owner_id: string; borrower_id: string; status: BorrowStatus
-  needed_on: string | null; due_on: string | null; note: string | null; created_at: string
+  needed_on: string | null; due_on: string | null; note: string | null; round_id: string | null; created_at: string
 }
 
 export const APP_URL = 'https://dwrack.github.io/Poppy/v2/'

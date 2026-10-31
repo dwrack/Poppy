@@ -11,11 +11,11 @@ export interface Round {
   opens_at: string; closes_at: string; reveal_at: string; voting_ends_at: string
   status: RoundStatus; picked_by: string | null
 }
-export interface Piece { id: string; name: string; category: Category; cutout_path: string; url?: string }
+export interface Piece { id: string; name: string; category: Category; cutout_path: string; url?: string; owner_id: string; owner: string }
 export interface Outfit { items: string[]; borrowed?: string[] }
 export interface EntryCard {
   entry_id: string; user_id: string; display_name: string; emoji: string; outfit: Outfit
-  photo_path: string | null; photoUrl?: string; submitted_at: string; pieces: Piece[]
+  photo_path: string | null; photoUrl?: string; submitted_at: string; pieces: Piece[]; styled_by: string | null
 }
 export const CHIPS = ['colour', 'on theme', 'brave', 'fit', 'shoes'] as const
 export type Chip = (typeof CHIPS)[number]
@@ -138,16 +138,17 @@ export async function setSquadTimeZone(groupId: string) {
 
 /* ---------- Entries ---------- */
 
-export interface MyEntry { id: string; outfit: Outfit; submitted_at: string }
+export interface MyEntry { id: string; outfit: Outfit; submitted_at: string; styled_look_id: string | null }
 
 export async function loadMyEntry(roundId: string, userId: string): Promise<MyEntry | null> {
-  const { data } = await supabase.from('entries').select('id, outfit, submitted_at').eq('round_id', roundId).eq('user_id', userId).maybeSingle()
+  const { data } = await supabase.from('entries').select('id, outfit, submitted_at, styled_look_id').eq('round_id', roundId).eq('user_id', userId).maybeSingle()
   return (data as MyEntry | null) ?? null
 }
 
-export async function submitEntry(roundId: string, userId: string, itemIds: string[]) {
+/** Save my look. `borrowed` lists which of the ids are a friend's pieces (with a yes for this round). A hand-built look is never a styled one. */
+export async function submitEntry(roundId: string, userId: string, itemIds: string[], borrowed: string[] = []) {
   const { error } = await supabase.from('entries').upsert(
-    { round_id: roundId, user_id: userId, outfit: { items: itemIds, borrowed: [] }, submitted_at: new Date().toISOString() },
+    { round_id: roundId, user_id: userId, outfit: { items: itemIds, borrowed }, styled_look_id: null, submitted_at: new Date().toISOString() },
     { onConflict: 'round_id,user_id' },
   )
   if (error) throw new Error(error.message.replace(/^.*?: /, ''))
