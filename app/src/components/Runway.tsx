@@ -9,6 +9,7 @@ import {
 } from '../lib/game'
 import { useObjectUrl } from '../lib/useObjectUrl'
 import { CATEGORIES, CATEGORY_LABEL, type Category, type Item } from '../types'
+import { AvatarStage } from './AvatarStage'
 import { Chip as ChipButton } from './Chip'
 
 export function Runway({ userId, onAdd, onGoSquad }: { userId: string; onAdd: () => void; onGoSquad: () => void }) {
@@ -343,17 +344,20 @@ function Show({ round, userId, now }: { round: Round; userId: string; now: numbe
             <span>Look {idx + 1} of {order.length}</span>
             <button onClick={() => setWalking(false)} className="text-poppy">Skip to the list ›</button>
           </div>
-          <div key={card.entry_id} className="flip-in rounded-blob bg-white p-4 ring-1 ring-black/5">
-            <CardStack card={card} className="mx-auto h-80 w-60" />
-            <div className="mt-3 flex items-center justify-center gap-2">
-              <span className="text-2xl">{card.emoji}</span>
-              <span className="text-lg font-extrabold">{card.user_id === userId ? 'You' : card.display_name}</span>
+          <div className="rounded-blob bg-white p-4 ring-1 ring-black/5">
+            {/* one canvas for the whole reveal: the stage stays, the girl, her clothes and the clock swap */}
+            <AvatarStage card={card} mode="reveal" className="mx-auto h-80 w-full max-w-[300px]" fallback={<CardStack card={card} className="h-full w-full" />} />
+            <div key={card.entry_id} className="flip-in">
+              <div className="mt-3 flex items-center justify-center gap-2">
+                <span className="text-2xl">{card.emoji}</span>
+                <span className="text-lg font-extrabold">{card.user_id === userId ? 'You' : card.display_name}</span>
+              </div>
+              {card.user_id === userId ? (
+                <p className="mt-2 text-center text-sm text-mute">That’s you ✨ No voting for yourself.</p>
+              ) : (
+                <VoteBox entryId={card.entry_id} existing={myVote} onVoted={reload} />
+              )}
             </div>
-            {card.user_id === userId ? (
-              <p className="mt-2 text-center text-sm text-mute">That’s you ✨ No voting for yourself.</p>
-            ) : (
-              <VoteBox key={card.entry_id} entryId={card.entry_id} existing={myVote} onVoted={reload} />
-            )}
           </div>
           <div className="mt-3 flex gap-2">
             <button onClick={() => setIdx((i) => Math.max(0, i - 1))} disabled={idx === 0} className="rounded-full bg-white px-4 py-3 font-bold ring-1 ring-black/10 disabled:opacity-30">‹</button>
@@ -445,6 +449,9 @@ function Podium({ round, cards, results, userId, confetti, title }: { round: Rou
   // Podium order: 2nd, 1st, 3rd; ties share a block.
   const blocks = [2, 1, 3].map((p) => ({ place: p, rows: top.filter((r) => r.place === p) })).filter((b) => b.rows.length)
   const heights: Record<number, string> = { 1: 'h-24', 2: 'h-16', 3: 'h-12' }
+  // One body on screen (iPhone rule), so the podium shows one girl at a time: the winner first, tap a block for the others.
+  const [picked, setPicked] = useState<string>()
+  const shown = top.find((r) => r.card.entry_id === picked) ?? top[0]
 
   return (
     <section className="relative mt-4 overflow-hidden rounded-blob bg-white p-4 ring-1 ring-black/5">
@@ -453,11 +460,19 @@ function Podium({ round, cards, results, userId, confetti, title }: { round: Rou
       <h3 className="text-lg font-extrabold">{round.theme}</h3>
       {iWon && <p className="mt-1 inline-block rounded-full bg-butter px-3 py-1 text-sm font-extrabold">🏆 You won this round!</p>}
 
-      <div className="mt-4 flex items-end justify-center gap-3">
+      {shown && (
+        <AvatarStage card={shown.card} mode="podium" podium={Math.min(3, shown.place) as 1 | 2 | 3} className="mx-auto mt-3 h-64 w-full max-w-[300px]" fallback={<CardStack card={shown.card} className="h-full w-full" />} />
+      )}
+
+      <div className="mt-3 flex items-end justify-center gap-3">
         {blocks.map((b) => (
           <div key={b.place} className="flex flex-1 flex-col items-center">
             <div className="flex -space-x-6">
-              {b.rows.map((r) => <CardStack key={r.card.entry_id} card={r.card} className="h-32 w-24" />)}
+              {b.rows.map((r) => (
+                <button key={r.card.entry_id} onClick={() => setPicked(r.card.entry_id)} className={'rounded-blob active:scale-95 ' + (shown?.card.entry_id === r.card.entry_id ? 'ring-[3px] ring-poppy' : '')} aria-label={`Show ${r.card.display_name} on the podium`}>
+                  <CardStack card={r.card} className="h-24 w-[72px]" />
+                </button>
+              ))}
             </div>
             <div className="mt-1 text-center text-xs font-bold">
               {b.rows.map((r) => (r.card.user_id === userId ? 'You' : r.card.display_name)).join(' & ')}

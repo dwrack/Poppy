@@ -7,3 +7,15 @@ import { lazy } from 'react'
  */
 export const LazyDressMe = lazy(() => import('../avatar/DressMe'))
 export const LazyAvatarScene = lazy(() => import('../avatar/AvatarScene'))
+
+let gl: boolean | undefined
+/** Can this phone do WebGL at all? Checked once; without it the cutout stack stays and the avatar chunk is never downloaded. */
+export function webglOk() {
+  if (gl === undefined) {
+    try {
+      const c = document.createElement('canvas')
+      gl = !!(c.getContext('webgl2') || c.getContext('webgl'))
+    } catch { gl = false }
+  }
+  return gl
+}
