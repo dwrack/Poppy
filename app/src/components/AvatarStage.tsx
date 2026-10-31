@@ -70,7 +70,7 @@ export function AvatarStage({ card, mode, podium, fallback, className }: {
           data-testid="photo-flip"
         >{showPhoto ? '🧍 3D' : '📸 Photo'}</button>
       )}
-      {showPhoto && <p className="pointer-events-none absolute bottom-1.5 left-0 right-0 z-20 text-center text-[10px] font-semibold text-white drop-shadow">tap to see her in 3D</p>}
+      {showPhoto && <p className="pointer-events-none absolute bottom-1.5 left-0 right-0 z-20 text-center text-[10px] font-semibold text-white drop-shadow">tap to see it in 3D</p>}
       {avatar && ready && !showPhoto && (
         <>
           <div className="pointer-events-none absolute top-2 right-2 flex flex-col gap-1" data-testid="piece-cards">
@@ -80,7 +80,7 @@ export function AvatarStage({ card, mode, podium, fallback, className }: {
               </div>
             ))}
           </div>
-          <p className="pointer-events-none absolute bottom-1.5 left-0 right-0 text-center text-[10px] font-semibold text-mute">tap her to twirl</p>
+          <p className="pointer-events-none absolute bottom-1.5 left-0 right-0 text-center text-[10px] font-semibold text-mute">tap to twirl</p>
         </>
       )}
     </div>

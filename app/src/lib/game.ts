@@ -43,7 +43,7 @@ export const LADDER = [
   { title: 'Trendsetter', at: 40 },
   { title: 'Stylist', at: 120 },
   { title: 'Icon', at: 300 },
-  { title: 'Closet Goddess', at: 600 },
+  { title: 'Closet Legend', at: 600 },
 ] as const
 
 export function ladderFor(stars: number) {

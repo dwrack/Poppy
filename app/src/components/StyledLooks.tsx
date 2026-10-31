@@ -13,7 +13,7 @@ export function StyledLooks({ looks, wornId, onWear }: { looks: StyledLook[]; wo
   return (
     <section className="mt-4">
       <h3 className="text-lg font-extrabold">Styled for you ✨</h3>
-      <p className="mb-2 text-xs text-mute">A friend built this from your closet. Wear it as your look, or not.</p>
+      <p className="mb-2 text-xs text-mute">Someone in your squad built this from your closet. Wear it as your look, or not.</p>
       <div className="-mx-4 flex gap-3 overflow-x-auto px-4 pb-2 [scrollbar-width:none]">
         {shown.map((l) => <LookCard key={l.id} look={l} worn={l.id === wornId} onWear={onWear} />)}
       </div>

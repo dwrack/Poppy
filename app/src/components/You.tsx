@@ -18,7 +18,7 @@ import {
 const HAIR = ['black', 'dark brown', 'brown', 'light brown', 'auburn', 'red', 'blonde', 'grey', 'other']
 const EYES = ['brown', 'hazel', 'green', 'blue', 'grey', 'other']
 const MEASURE_LABEL: Record<MeasureField, string> = {
-  bust: 'Bust', waist: 'Waist', hips: 'Hips', inseam: 'Inseam', shoulder: 'Shoulders',
+  bust: 'Chest', waist: 'Waist', hips: 'Hips', inseam: 'Inseam', shoulder: 'Shoulders',
 }
 
 export function You({ email, userId }: { email?: string; userId: string }) {
@@ -185,10 +185,10 @@ function AvatarCard({ heightIn }: { heightIn?: number }) {
   const look = presetsToLook(presets)
   const set = (patch: Partial<AvatarLook>) => void saveAvatar(patch)
   return (
-    <Card title="My avatar" hint="She walks the runway in your real clothes. Pick her face, skin, hair and eyes; your height sizes her.">
+    <Card title="My avatar" hint="Your avatar walks the runway in your real clothes. Pick the face, skin, hair and eyes; your height sets how tall it stands.">
       {show ? (
         <div className="relative mb-3 h-64 overflow-hidden rounded-2xl bg-gradient-to-b from-white to-butter/50 ring-1 ring-black/5" data-testid="avatar-preview">
-          <Suspense fallback={<div className="flex h-full items-center justify-center text-sm text-mute">Loading her…</div>}>
+          <Suspense fallback={<div className="flex h-full items-center justify-center text-sm text-mute">Loading your avatar…</div>}>
             <LazyAvatarScene look={look} heightIn={heightIn} compact />
           </Suspense>
         </div>
@@ -253,7 +253,7 @@ function StarsCard({ userId }: { userId: string }) {
         </div>
       </div>
       <div className="mt-3 h-2 overflow-hidden rounded-full bg-white/15"><div className="h-full rounded-full bg-butter transition-all" style={{ width: pct + '%' }} /></div>
-      <p className="mt-1.5 text-xs text-white/70">{next ? `${toNext} more to ${next}` : 'Top of the ladder. Closet Goddess.'} · Stars come from votes on your looks, voting on time, and finishing rounds.</p>
+      <p className="mt-1.5 text-xs text-white/70">{next ? `${toNext} more to ${next}` : 'Top of the ladder. Closet Legend.'} · Stars come from votes on your looks, voting on time, and finishing rounds.</p>
     </section>
   )
 }

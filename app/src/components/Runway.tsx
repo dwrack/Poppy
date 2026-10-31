@@ -324,7 +324,7 @@ function DressingRoom({ round, userId, members, asked, borrowed, borrowsLoading,
       <div className="mt-5 flex gap-2">
         {onCancel && <button onClick={onCancel} className="flex-1 rounded-full py-3 font-bold text-mute">Keep my old look</button>}
         <button onClick={send} disabled={busy || borrowsLoading || worn.length === 0} className="flex-1 rounded-full bg-poppy py-3 font-bold text-white shadow-lg shadow-poppy/40 disabled:opacity-40">
-          {busy || borrowsLoading ? '…' : '🚶‍♀️ Send it down the runway'}
+          {busy || borrowsLoading ? '…' : '🚶 Send it down the runway'}
         </button>
       </div>
       {err && <p className="mt-2 text-center text-sm text-poppy">{err}</p>}

@@ -95,7 +95,7 @@ export default function DressMe({ onClose }: { onClose: () => void }) {
             The avatar couldn’t load on this phone. Your closet still works.
           </div>
         )}
-        <p className="pointer-events-none absolute bottom-2 left-0 right-0 text-center text-[11px] font-semibold text-mute">drag to spin her</p>
+        <p className="pointer-events-none absolute bottom-2 left-0 right-0 text-center text-[11px] font-semibold text-mute">drag to spin</p>
         {/* the studio's photo sits over her when it is in; she stays loaded behind it for the toggle */}
         {showPhoto && <img src={photoUrl} alt="You in this look" className="absolute inset-0 z-10 h-full w-full object-cover" data-testid="photo-real" />}
         {photoUrl && (

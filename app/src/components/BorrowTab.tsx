@@ -20,7 +20,7 @@ export function BorrowTab({ roundId, userId, members, asked, borrowed, sent, pic
   if (friends.length === 0) {
     return (
       <p className="mt-4 rounded-2xl bg-white p-4 text-center text-sm text-mute ring-1 ring-black/5">
-        It’s just you in the squad so far. Invite a friend from the Squad tab and you can borrow from her closet for the round.
+        It’s just you in this squad so far. Invite someone from the Squad tab and you can borrow from their closet for the round.
       </p>
     )
   }
@@ -30,7 +30,7 @@ export function BorrowTab({ roundId, userId, members, asked, borrowed, sent, pic
       {borrowed.length > 0 && (
         <section className="mb-4">
           <h4 className="text-sm font-extrabold">Borrowed for this round</h4>
-          <p className="mb-2 text-xs text-mute">She said yes. Tap to put it on, and swap it at school tomorrow.</p>
+          <p className="mb-2 text-xs text-mute">They said yes. Tap to put it on, then grab the real thing from them.</p>
           <div className="grid grid-cols-3 gap-3">
             {borrowed.map((p) => (
               <RemoteTile key={p.id} url={p.url} name={p.name} sub={`from ${p.owner}`} n={picked.indexOf(p.id) + 1} onClick={() => onToggle(p.id)} />
@@ -51,7 +51,7 @@ export function BorrowTab({ roundId, userId, members, asked, borrowed, sent, pic
       {friend ? (
         <FriendRack key={friend.user_id} roundId={roundId} friend={friend} asked={asked} sent={sent.filter((s) => s.to_user === friend.user_id)} picked={picked} onToggle={onToggle} onSent={onSent} />
       ) : (
-        <p className="mt-1 text-xs text-mute">Tap a friend to browse her closet. Ask for a piece, and it shows up here when she says yes.</p>
+        <p className="mt-1 text-xs text-mute">Tap someone to browse their closet. Ask for a piece, and it shows up here when they say yes.</p>
       )}
     </div>
   )
@@ -97,8 +97,8 @@ function FriendRack({ roundId, friend, asked, sent, picked, onToggle, onSent }: 
         <h4 className="text-sm font-extrabold">{friend.display_name}’s closet</h4>
         <button onClick={() => setStyling(true)} className="rounded-full bg-ink px-3 py-1.5 text-xs font-bold text-white">✨ Style {friend.display_name}</button>
       </div>
-      {sent.length > 0 && <p className="mt-1 text-xs font-semibold text-sage">You sent her {sent.length === 1 ? 'a look' : `${sent.length} looks`} this round ✓</p>}
-      <p className="mt-1 mb-2 text-xs text-mute">Tap a piece to ask for it. If she says yes it goes on your stack.</p>
+      {sent.length > 0 && <p className="mt-1 text-xs font-semibold text-sage">You sent {friend.display_name} {sent.length === 1 ? 'a look' : `${sent.length} looks`} this round ✓</p>}
+      <p className="mt-1 mb-2 text-xs text-mute">Tap a piece to ask for it. If they say yes it goes on your stack.</p>
       <div className="grid grid-cols-3 gap-3">
         {items.map((i) => {
           const b = byItem.get(i.id)
@@ -146,7 +146,7 @@ function StyleFriend({ roundId, friend, items, onDone, onCancel }: { roundId: st
           <span className="text-xs font-bold text-mute">{pick.length}/8 pieces</span>
         </div>
         <div className="mt-3 flex justify-center"><Stack layers={layers} className="h-72 w-56" /></div>
-        <p className="mt-2 text-center text-xs text-mute">Her pieces, your eye. She can wear it as her look with one tap.</p>
+        <p className="mt-2 text-center text-xs text-mute">{friend.display_name}’s pieces, your eye. One tap and it’s their look.</p>
       </div>
 
       <div className="mt-3 grid grid-cols-3 gap-3">

@@ -37,7 +37,7 @@ export function SignIn() {
     setBusy(false)
     if (error) {
       setMsg(/database error saving new user/i.test(error.message)
-        ? "That invite code didn't work. It may be mistyped, used already, or expired. Ask your friend for a fresh one."
+        ? "That invite code didn't work. It may be mistyped, used already, or expired. Ask whoever invited you for a fresh one."
         : error.message)
       return
     }
