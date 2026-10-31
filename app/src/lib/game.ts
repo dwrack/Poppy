@@ -12,6 +12,9 @@ export interface Round {
   opens_at: string; closes_at: string; reveal_at: string; voting_ends_at: string
   status: RoundStatus; picked_by: string | null
   theme_pick_id?: string | null; theme_veto_id?: string | null; theme_pick_by?: string | null
+  season_no: number | null; round_no: number | null
+  /** The pack the round's theme came from. Null before the drop (no theme yet) and for step 1 rounds. */
+  pack: ThemePack | null
 }
 export interface Piece { id: string; name: string; category: Category; cutout_path: string; url?: string; owner_id: string; owner: string }
 export interface Outfit { items: string[]; borrowed?: string[] }
@@ -96,6 +99,14 @@ export function countdown(ms: number) {
   return `${Math.floor(ms / 1000)}s`
 }
 
+/** A round with its theme's pack joined in (rounds.theme_id -> themes.pack_id -> theme_packs). */
+const ROUND_SELECT = '*, themes(theme_packs(id, name, lobby_colour, confetti_colour))'
+type RoundRow = Omit<Round, 'pack'> & { themes?: { theme_packs: ThemePack | null } | null }
+function toRound(row: RoundRow): Round {
+  const { themes, ...rest } = row
+  return { ...rest, pack: themes?.theme_packs ?? null }
+}
+
 /** The squad's current round (the newest that isn't done) and its last finished one, kept live. */
 export function useRound(groupId?: string) {
   const [state, setState] = useState<{ loading: boolean; current: Round | null; last: Round | null }>({ loading: true, current: null, last: null })
@@ -105,10 +116,11 @@ export function useRound(groupId?: string) {
     if (!groupId) return
     await advanceRounds()
     const [{ data: cur }, { data: prev }] = await Promise.all([
-      supabase.from('rounds').select('*').eq('group_id', groupId).neq('status', 'done').order('opens_at').limit(1),
-      supabase.from('rounds').select('*').eq('group_id', groupId).eq('status', 'done').order('closes_at', { ascending: false }).limit(1),
+      supabase.from('rounds').select(ROUND_SELECT).eq('group_id', groupId).neq('status', 'done').order('opens_at').limit(1),
+      supabase.from('rounds').select(ROUND_SELECT).eq('group_id', groupId).eq('status', 'done').order('closes_at', { ascending: false }).limit(1),
     ])
-    setState({ loading: false, current: (cur?.[0] as Round) ?? null, last: (prev?.[0] as Round) ?? null })
+    const first = (rows: unknown[] | null) => (rows?.[0] ? toRound(rows[0] as RoundRow) : null)
+    setState({ loading: false, current: first(cur), last: first(prev) })
   }, [groupId])
 
   useEffect(() => {
@@ -238,8 +250,8 @@ export function rank(cards: EntryCard[], results: Result[]) {
 /* ---------- Lookbook ---------- */
 
 export async function loadLookbook(groupId: string, limit = 8): Promise<PastRound[]> {
-  const { data } = await supabase.from('rounds').select('*').eq('group_id', groupId).eq('status', 'done').order('closes_at', { ascending: false }).limit(limit)
-  const rounds = (data ?? []) as Round[]
+  const { data } = await supabase.from('rounds').select(ROUND_SELECT).eq('group_id', groupId).eq('status', 'done').order('closes_at', { ascending: false }).limit(limit)
+  const rounds = ((data ?? []) as unknown as RoundRow[]).map(toRound)
   return Promise.all(rounds.map(async (round) => {
     const [cards, results, woreIt] = await Promise.all([loadRunway(round.id), loadResults(round.id), loadWoreIt(round.id)])
     return { round, cards, results, woreIt }
@@ -352,4 +364,67 @@ export function useSquadLadder(groupId?: string) {
     return () => window.removeEventListener('focus', refresh)
   }, [refresh])
   return { rows, season, refresh }
+}
+
+/* ---------- Seasons ---------- */
+
+export const SEASON_ROUNDS = 12
+export interface ThemePack { id: string; name: string; lobby_colour: string; confetti_colour: string }
+export const EVERYDAY_PACK: ThemePack = { id: '', name: 'Everyday', lobby_colour: '#2a2a2a', confetti_colour: '#e76f51' }
+export type Badge = 'Season Winner' | 'Most Improved' | 'Never Missed a Round' | 'Best Lender'
+export const BADGE_EMOJI: Record<Badge, string> = { 'Season Winner': '👑', 'Most Improved': '📈', 'Never Missed a Round': '🔥', 'Best Lender': '🤝' }
+export interface SeasonBadge { id: string; user_id: string; group_id: string; season_no: number; badge: Badge }
+export interface SeasonRow {
+  user_id: string; display_name: string; emoji: string; stars: number; entered: number; voted: number; wins: number; rounds_done: number
+}
+
+/** Today's date on this phone as YYYY-MM-DD (not UTC, so a pack flips at local midnight). */
+function localDate() {
+  const d = new Date()
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
+}
+
+/** The theme pack in season today (Everyday when none is). Falls back to Everyday offline. */
+export function useActivePack() {
+  const [pack, setPack] = useState<ThemePack>(EVERYDAY_PACK)
+  useEffect(() => {
+    let live = true
+    supabase.rpc('active_pack', { d: localDate() }).then(({ data }) => { const p = (data as ThemePack[] | null)?.[0]; if (live && p) setPack(p) })
+    return () => { live = false }
+  }, [])
+  return pack
+}
+
+/** The pack to colour the Runway with: the round's own pack while one is in play (so it never
+ *  changes mid-round), the last round's while waiting for the next drop, else today's. */
+export function packFor(current: Round | null, last: Round | null, today: ThemePack): ThemePack {
+  if (current && current.status !== 'upcoming') return current.pack ?? EVERYDAY_PACK
+  return last?.pack ?? today
+}
+
+/** Per-member totals for one season of a squad, best first. Empty when offline or not a member. */
+export async function loadSeasonSummary(groupId: string, seasonNo: number): Promise<SeasonRow[]> {
+  const { data } = await supabase.rpc('season_summary', { g: groupId, s: seasonNo })
+  return (data ?? []) as SeasonRow[]
+}
+
+/** Badges for one season of a squad (everyone's), or every badge a user has earned. */
+export async function loadSeasonBadges(groupId: string, seasonNo: number): Promise<SeasonBadge[]> {
+  const { data } = await supabase.from('season_badges').select('*').eq('group_id', groupId).eq('season_no', seasonNo)
+  return (data ?? []) as SeasonBadge[]
+}
+
+export async function loadMyBadges(userId: string): Promise<SeasonBadge[]> {
+  const { data } = await supabase.from('season_badges').select('*').eq('user_id', userId).order('season_no', { ascending: false })
+  return (data ?? []) as SeasonBadge[]
+}
+
+/** Season ranking with shared places, like rank() for rounds. */
+export function rankSeason(rows: SeasonRow[]) {
+  const sorted = [...rows].sort((a, b) => b.stars - a.stars)
+  let place = 0, last = -1
+  return sorted.map((row) => {
+    if (row.stars !== last) { place++; last = row.stars }
+    return { place, row }
+  })
 }

@@ -9,6 +9,7 @@ import { syncNow } from '../lib/sync'
 import { MePhotos } from './MePhotos'
 import { SquadLadder } from './SquadLadder'
 import { useStars } from '../lib/game'
+import { SeasonBadges } from './SeasonBadges'
 import {
   AVATAR_EYES, AVATAR_FACES, AVATAR_HAIR_COLOURS, AVATAR_HAIRS, AVATAR_SKINS, MEASURE_FIELDS, type AvatarLook, type MeasureField, type Profile,
 } from '../types'
@@ -32,6 +33,7 @@ export function You({ email, userId }: { email?: string; userId: string }) {
       <StarsCard userId={userId} />
       <AvatarCard heightIn={profile?.heightIn} />
       <SquadLadder userId={userId} />
+      <SeasonBadges userId={userId} />
       <MePhotos userId={userId} />
       {loaded && <ProfileForm key={profile?.updatedAt ?? 0} profile={profile} />}
       <Measurements />
