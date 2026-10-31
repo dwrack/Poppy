@@ -3,13 +3,15 @@ import { useCallback, useEffect, useMemo, useState, type ReactNode } from 'react
 import { db } from '../db'
 import { useSquad, type Member } from '../lib/friends'
 import {
-  CHIPS, CHIP_LABEL, castVote, countdown, loadLookbook, loadMyEntry, loadMyVotes, loadResults, loadRunway, loadSubmitted,
-  phaseEnds, rank, seededShuffle, setSquadTimeZone, startRoundNow, submitEntry, useRound,
+  CHIPS, CHIP_LABEL, castVote, countdown, loadLookbook, loadMyEntry, loadMyVotes, loadResults, loadRunway,
+  phaseEnds, rank, seededShuffle, setSquadTimeZone, startRoundNow, submitEntry, useRound, useSubmitted,
   type Chip, type EntryCard, type PastRound, type Result, type Round, type Vote,
 } from '../lib/game'
 import { useObjectUrl } from '../lib/useObjectUrl'
 import { CATEGORIES, CATEGORY_LABEL, type Category, type Item } from '../types'
 import { Chip as ChipButton } from './Chip'
+import { ThemePick } from './ThemePick'
+import { WoreIt } from './WoreIt'
 
 export function Runway({ userId, onAdd, onGoSquad }: { userId: string; onAdd: () => void; onGoSquad: () => void }) {
   const squad = useSquad(userId)
@@ -39,7 +41,8 @@ export function Runway({ userId, onAdd, onGoSquad }: { userId: string; onAdd: ()
       ) : current.status === 'upcoming' ? (
         <>
           <Upcoming round={current} now={now} isOwner={isOwner} groupId={group.id} onStarted={refresh} />
-          {last && <LastRound round={last} userId={userId} />}
+          <ThemePick round={current} groupId={group.id} userId={userId} onChanged={refresh} />
+          {last && <LastRound round={last} userId={userId} now={now} />}
         </>
       ) : current.status === 'open' ? (
         <OpenRound round={current} userId={userId} members={squad.members} now={now} onAdd={onAdd} />
@@ -75,6 +78,7 @@ function RoundCard({ round, now, children }: { round: Round; now: number; childr
 }
 
 function Upcoming({ round, now, isOwner, groupId, onStarted }: { round: Round; now: number; isOwner: boolean; groupId: string; onStarted: () => void }) {
+  const picked = !!round.theme_pick_id
   const [busy, setBusy] = useState(false)
   const [err, setErr] = useState<string>()
   async function start() {
@@ -84,7 +88,7 @@ function Upcoming({ round, now, isOwner, groupId, onStarted }: { round: Round; n
   const when = new Date(round.opens_at).toLocaleString(undefined, { weekday: 'long', hour: 'numeric', minute: '2-digit' })
   return (
     <RoundCard round={round} now={now}>
-      <p className="mt-3 text-sm text-white/70">Drops {when}. You get 24 hours to build a look from your closet, then the runway plays and everyone votes.</p>
+      <p className="mt-3 text-sm text-white/70">Drops {when}. You get 24 hours to build a look from your closet, then the runway plays and everyone votes.{picked ? ' Last round’s winner picked this one.' : ''}</p>
       {isOwner && (
         <>
           <button onClick={start} disabled={busy} className="mt-4 w-full rounded-full bg-poppy py-3 font-bold text-white disabled:opacity-50">
@@ -103,19 +107,19 @@ function Upcoming({ round, now, isOwner, groupId, onStarted }: { round: Round; n
 function OpenRound({ round, userId, members, now, onAdd }: { round: Round; userId: string; members: Member[]; now: number; onAdd: () => void }) {
   const [entry, setEntry] = useState<{ outfit: { items: string[] } } | null>()
   const [editing, setEditing] = useState(false)
-  const [submitted, setSubmitted] = useState<string[]>([])
+  // Who's in arrives over Realtime (private broadcast + entries changes), with a slow poll as the fallback.
+  const { submitted, live, refresh: refreshSubmitted } = useSubmitted(round.id)
 
   const load = useCallback(async () => {
-    const [e, s] = await Promise.all([loadMyEntry(round.id, userId), loadSubmitted(round.id)])
-    setEntry(e); setSubmitted(s)
-  }, [round.id, userId])
+    const [e] = await Promise.all([loadMyEntry(round.id, userId), refreshSubmitted()])
+    setEntry(e)
+  }, [round.id, userId, refreshSubmitted])
 
   useEffect(() => {
     void load()
-    const t = setInterval(() => void loadSubmitted(round.id).then(setSubmitted), 30_000)
     window.addEventListener('focus', load)
-    return () => { clearInterval(t); window.removeEventListener('focus', load) }
-  }, [load, round.id])
+    return () => window.removeEventListener('focus', load)
+  }, [load])
 
   if (entry === undefined) return <RoundCard round={round} now={now} />
 
@@ -146,16 +150,21 @@ function OpenRound({ round, userId, members, now, onAdd }: { round: Round; userI
         </div>
         <p className="mt-3 text-center text-xs text-mute">Nobody sees it until the runway. No copying possible.</p>
       </section>
-      <WhoIsIn members={members} submitted={submitted} userId={userId} />
+      <WhoIsIn members={members} submitted={submitted} userId={userId} live={live} />
     </>
   )
 }
 
-function WhoIsIn({ members, submitted, userId }: { members: Member[]; submitted: string[]; userId: string }) {
+function WhoIsIn({ members, submitted, userId, live }: { members: Member[]; submitted: string[]; userId: string; live: boolean }) {
   const inSet = new Set(submitted)
   return (
     <section className="mt-4 rounded-blob bg-white p-4 ring-1 ring-black/5">
-      <h3 className="text-lg font-extrabold">Who’s in</h3>
+      <div className="flex items-center justify-between">
+        <h3 className="text-lg font-extrabold">Who’s in</h3>
+        <span className={'flex items-center gap-1 text-[11px] font-bold ' + (live ? 'text-sage' : 'text-mute')}>
+          <span className={'h-1.5 w-1.5 rounded-full ' + (live ? 'bg-sage' : 'bg-mute')} />{live ? 'live' : 'checking every so often'}
+        </span>
+      </div>
       <p className="mb-3 text-xs text-mute">{submitted.length} of {members.length} looks in. Names only, looks stay secret.</p>
       <ul className="space-y-2">
         {members.map((m) => (
@@ -429,16 +438,22 @@ function VoteBox({ entryId, existing, onVoted }: { entryId: string; existing?: V
 
 /* ---------- Podium ---------- */
 
-function LastRound({ round, userId }: { round: Round; userId: string }) {
+function LastRound({ round, userId, now }: { round: Round; userId: string; now: number }) {
   const [data, setData] = useState<{ cards: EntryCard[]; results: Result[] }>()
+  const [woreKey, setWoreKey] = useState(0)
   useEffect(() => { Promise.all([loadRunway(round.id), loadResults(round.id)]).then(([cards, results]) => setData({ cards, results })) }, [round.id])
   if (!data || data.cards.length === 0) return null
-  return <Podium round={round} cards={data.cards} results={data.results} userId={userId} confetti title="Last round" />
+  const entered = data.cards.some((c) => c.user_id === userId)
+  return (
+    <Podium round={round} cards={data.cards} results={data.results} userId={userId} confetti title="Last round">
+      <WoreIt key={woreKey} round={round} userId={userId} entered={entered} now={now} onDone={() => setWoreKey((k) => k + 1)} />
+    </Podium>
+  )
 }
 
 const PLACE_EMOJI = ['', '🥇', '🥈', '🥉']
 
-function Podium({ round, cards, results, userId, confetti, title }: { round: Round; cards: EntryCard[]; results: Result[]; userId: string; confetti?: boolean; title: string }) {
+function Podium({ round, cards, results, userId, confetti, title, children }: { round: Round; cards: EntryCard[]; results: Result[]; userId: string; confetti?: boolean; title: string; children?: ReactNode }) {
   const ranked = rank(cards, results)
   const top = ranked.filter((r) => r.place <= 3)
   const iWon = top.some((r) => r.place === 1 && r.card.user_id === userId)
@@ -484,6 +499,7 @@ function Podium({ round, cards, results, userId, confetti, title }: { round: Rou
           </li>
         ))}
       </ul>
+      {children}
     </section>
   )
 }
@@ -519,8 +535,9 @@ function Lookbook({ groupId, userId, skipId, refreshKey }: { groupId: string; us
       <h2 className="text-lg font-extrabold">Lookbook</h2>
       <p className="mb-3 text-xs text-mute">Every round the squad has walked.</p>
       <div className="space-y-3">
-        {shown.map(({ round, cards, results }) => {
+        {shown.map(({ round, cards, results, woreIt }) => {
           const ranked = rank(cards, results)
+          const wore = new Map(woreIt.map((w) => [w.user_id, w]))
           return (
             <div key={round.id} className="rounded-2xl bg-white p-3 ring-1 ring-black/5">
               <div className="flex items-baseline justify-between">
@@ -533,12 +550,23 @@ function Lookbook({ groupId, userId, skipId, refreshKey }: { groupId: string; us
                     <div className="relative">
                       <CardStack card={r.card} className="h-24 w-20" />
                       {r.place <= 3 && <span className="absolute -top-1 -left-1 text-lg">{PLACE_EMOJI[r.place]}</span>}
+                      {wore.has(r.card.user_id) && <span className="absolute -right-1 -bottom-1 rounded-full bg-sage px-1.5 text-[10px] font-extrabold text-white" title="Wore it for real">👗</span>}
                     </div>
                     <div className="mt-1 truncate text-[11px] font-bold">{r.card.user_id === userId ? 'You' : r.card.display_name}</div>
                     <div className="text-[10px] text-mute">{r.result.total} ⭐</div>
                   </div>
                 ))}
               </div>
+              {woreIt.some((w) => w.photoUrl) && (
+                <div className="-mx-1 mt-2 flex gap-2 overflow-x-auto px-1 pb-1 [scrollbar-width:none]">
+                  {woreIt.filter((w) => w.photoUrl).map((w) => (
+                    <figure key={w.user_id} className="w-20 shrink-0 text-center">
+                      <img src={w.photoUrl} alt="" className="h-24 w-20 rounded-xl object-cover" loading="lazy" />
+                      <figcaption className="mt-1 truncate text-[10px] font-bold text-mute">{w.emoji} {w.user_id === userId ? 'You' : w.display_name} wore it</figcaption>
+                    </figure>
+                  ))}
+                </div>
+              )}
             </div>
           )
         })}

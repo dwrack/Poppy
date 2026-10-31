@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from 'react'
-import { supabase } from './supabase'
+import { BUCKET, supabase } from './supabase'
 import { signPaths } from './friends'
+import { downscale } from './cutout'
 import type { Category } from '../types'
 
 /* ---------- Types ---------- */
@@ -10,6 +11,7 @@ export interface Round {
   id: string; group_id: string; theme: string | null
   opens_at: string; closes_at: string; reveal_at: string; voting_ends_at: string
   status: RoundStatus; picked_by: string | null
+  theme_pick_id?: string | null; theme_veto_id?: string | null; theme_pick_by?: string | null
 }
 export interface Piece { id: string; name: string; category: Category; cutout_path: string; url?: string }
 export interface Outfit { items: string[]; borrowed?: string[] }
@@ -22,7 +24,8 @@ export type Chip = (typeof CHIPS)[number]
 export const CHIP_LABEL: Record<Chip, string> = { colour: '🎨 colour', 'on theme': '🎯 on theme', brave: '🔥 brave', fit: '✂️ fit', shoes: '👟 shoes' }
 export interface Vote { id: string; entry_id: string; voter_id: string; stars: number; chip: Chip }
 export interface Result { entry_id: string; total: number; votes: number; chips: Partial<Record<Chip, number>> }
-export interface PastRound { round: Round; cards: EntryCard[]; results: Result[] }
+export interface WoreIt { user_id: string; display_name: string; emoji: string; photo_path: string | null; photoUrl?: string; created_at: string }
+export interface PastRound { round: Round; cards: EntryCard[]; results: Result[]; woreIt: WoreIt[] }
 
 /* ---------- Ladder ---------- */
 
@@ -159,6 +162,31 @@ export async function loadSubmitted(roundId: string): Promise<string[]> {
   return (data ?? []) as string[]
 }
 
+/**
+ * Who has a look in, kept live. Two Realtime feeds (a private broadcast the
+ * server sends on every entry, plus postgres_changes on entries) and a poll
+ * that runs slowly while live and quickly when the socket is down.
+ */
+export function useSubmitted(roundId: string) {
+  const [submitted, setSubmitted] = useState<string[]>([])
+  const [live, setLive] = useState(false)
+  const refresh = useCallback(() => loadSubmitted(roundId).then(setSubmitted), [roundId])
+  useEffect(() => {
+    void refresh()
+    const ch = supabase.channel(`round:${roundId}`, { config: { private: true } })
+      .on('broadcast', { event: 'entry' }, () => void refresh())
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'entries', filter: `round_id=eq.${roundId}` }, () => void refresh())
+      .subscribe((status) => setLive(status === 'SUBSCRIBED'))
+    window.addEventListener('focus', refresh)
+    return () => { void supabase.removeChannel(ch); window.removeEventListener('focus', refresh) }
+  }, [refresh, roundId])
+  useEffect(() => {
+    const t = setInterval(() => void refresh(), live ? 120_000 : 20_000)
+    return () => clearInterval(t)
+  }, [live, refresh])
+  return { submitted, live, refresh }
+}
+
 /** Entries with their pieces and signed photo links. Before the reveal the server returns only your own. */
 export async function loadRunway(roundId: string): Promise<EntryCard[]> {
   const { data, error } = await supabase.rpc('round_entry_cards', { r: roundId })
@@ -212,8 +240,8 @@ export async function loadLookbook(groupId: string, limit = 8): Promise<PastRoun
   const { data } = await supabase.from('rounds').select('*').eq('group_id', groupId).eq('status', 'done').order('closes_at', { ascending: false }).limit(limit)
   const rounds = (data ?? []) as Round[]
   return Promise.all(rounds.map(async (round) => {
-    const [cards, results] = await Promise.all([loadRunway(round.id), loadResults(round.id)])
-    return { round, cards, results }
+    const [cards, results, woreIt] = await Promise.all([loadRunway(round.id), loadResults(round.id), loadWoreIt(round.id)])
+    return { round, cards, results, woreIt }
   }))
 }
 
@@ -230,4 +258,97 @@ export function seededShuffle<T>(list: T[], seed: string): T[] {
   const out = [...list]
   for (let i = out.length - 1; i > 0; i--) { const j = Math.floor(rnd() * (i + 1)); [out[i], out[j]] = [out[j], out[i]] }
   return out
+}
+
+/* ---------- Theme prop ---------- */
+
+export interface ThemeOption { id: string; text: string }
+
+/** Did I (tie-)win the squad's last round? Then I set next week's theme. */
+export async function canPickTheme(groupId: string): Promise<boolean> {
+  const { data } = await supabase.rpc('can_pick_theme', { g: groupId })
+  return data === true
+}
+
+export async function loadThemeOptions(groupId: string): Promise<ThemeOption[]> {
+  const { data } = await supabase.rpc('theme_options', { g: groupId })
+  return (data ?? []) as ThemeOption[]
+}
+
+/** Names for the pick and veto already on the round, if any. */
+export async function loadThemeNames(ids: (string | null | undefined)[]): Promise<Map<string, string>> {
+  const want = ids.filter((x): x is string => !!x)
+  if (!want.length) return new Map()
+  const { data } = await supabase.from('themes').select('id, text').in('id', want)
+  return new Map(((data ?? []) as ThemeOption[]).map((t) => [t.id, t.text]))
+}
+
+/** Pick a theme for the upcoming round, or veto one. Pass null to clear. RLS lets only last round's winner through. */
+export async function setThemePick(roundId: string, patch: { theme_pick_id?: string | null; theme_veto_id?: string | null }) {
+  const { error, count } = await supabase.from('rounds').update(patch, { count: 'exact' }).eq('id', roundId)
+  if (error) throw new Error(error.message.replace(/^.*?: /, ''))
+  if (count === 0) throw new Error('Only last round’s winner can set the theme, and only before it drops.')
+}
+
+/* ---------- Wore it for real ---------- */
+
+/** Client-side mirror of the server's window: the day after the reveal, for a week. The server is the truth. */
+export function woreItOpen(round: Round, now: number) {
+  if (round.status !== 'done') return false
+  const reveal = new Date(round.reveal_at), today = new Date(now)
+  const dayAfter = new Date(reveal.getFullYear(), reveal.getMonth(), reveal.getDate() + 1).getTime()
+  return today.getTime() >= dayAfter && now < Date.parse(round.reveal_at) + 8 * 86_400_000
+}
+
+export async function loadWoreIt(roundId: string): Promise<WoreIt[]> {
+  const { data } = await supabase.rpc('round_wore_it', { r: roundId })
+  const rows = (data ?? []) as WoreIt[]
+  const paths = rows.flatMap((r) => (r.photo_path ? [r.photo_path] : []))
+  if (paths.length) {
+    const byPath = await signPaths(paths)
+    for (const r of rows) if (r.photo_path) r.photoUrl = byPath.get(r.photo_path)
+  }
+  return rows
+}
+
+/** "I wore it for real", with an optional photo that goes in her own closet folder (lookbook only, never the runway). */
+export async function markWoreIt(roundId: string, userId: string, photo?: File) {
+  let photo_path: string | null = null
+  if (photo) {
+    const small = await downscale(photo, 1600)
+    photo_path = `${userId}/wore/${roundId}.jpg`
+    const up = await supabase.storage.from(BUCKET).upload(photo_path, small, { upsert: true, contentType: 'image/jpeg' })
+    if (up.error) throw new Error(up.error.message)
+  }
+  const { error } = await supabase.from('round_actions').upsert(
+    { user_id: userId, round_id: roundId, kind: 'wore_it', ...(photo_path ? { photo_path } : {}) },
+    { onConflict: 'user_id,round_id,kind' },
+  )
+  if (error) throw new Error(/policy/i.test(error.message) ? 'That opens the day after the runway, for a week.' : error.message.replace(/^.*?: /, ''))
+}
+
+/* ---------- Squad ladder + seasons ---------- */
+
+export interface LadderRow { user_id: string; display_name: string; emoji: string; stars: number; rounds_played: number; wore_count: number; streak: number }
+export interface Season { rounds_done: number; season_no: number; round_in_season: number; rounds_per_season: number }
+
+/** Everyone's stars side by side, plus where the squad is in its season. Refreshes on focus. */
+export function useSquadLadder(groupId?: string) {
+  const [rows, setRows] = useState<LadderRow[]>()
+  const [season, setSeason] = useState<Season | null>(null)
+  const refresh = useCallback(async () => {
+    if (!groupId) return
+    const [{ data: l }, { data: s }] = await Promise.all([
+      supabase.rpc('squad_ladder', { g: groupId }),
+      supabase.from('squad_season').select('*').eq('group_id', groupId).maybeSingle(),
+    ])
+    setRows(((l ?? []) as LadderRow[]).slice().sort((a, b) => b.stars - a.stars))
+    setSeason((s as Season | null) ?? null)
+  }, [groupId])
+  useEffect(() => {
+    void refresh()
+    window.addEventListener('focus', refresh)
+    return () => window.removeEventListener('focus', refresh)
+  }, [refresh])
+  return { rows, season, refresh }
 }
