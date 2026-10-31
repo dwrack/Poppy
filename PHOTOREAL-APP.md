@@ -29,10 +29,15 @@ trick in AVATAR-STEP2.md).
   squad mate reads a runway photo (`can_see_photo`) once that round's
   reveal has started. Dress me photos are never visible to anyone else.
   No phone can write to the bucket.
-- `round_entry_cards_v2()`: same columns; `photo_path` is now the newest
-  photo job for that entry if it is done (an older finished photo would
-  show a look she has since changed). `entries.photo_path` (set by
-  nothing since v3) is no longer surfaced here.
+- `round_entry_cards_v2()`: same columns; `photo_path` is now the photo
+  of the look as it stands, `entry_photo_job(entry)`: the newest done job
+  whose pieces are all still in the look and that covers as much of it as
+  a photo holds. A render of a look she replaced never stands in, whether
+  the newer job is waiting, failed, was rejected or was never queued. The
+  squad's read of `photo_jobs` and `can_see_photo` use the same rule, so a
+  squad mate cannot open a replaced look's photo either.
+  `entries.photo_path` (set by nothing since v3) is no longer surfaced
+  here.
 
 **App**
 - `app/src/lib/photos.ts`: `queuePhoto`, `queueEntryPhoto` (fire and
@@ -42,13 +47,16 @@ trick in AVATAR-STEP2.md).
   10 minutes), `signPhotos` / `usePhotoUrl` through `signPaths` with the
   bucket now a parameter, `photoChip`.
 - Dress me: "📸 Photo" button on the stage queues what she is wearing (up
-  to 6 pieces). Chip: Queued, Rendering, In review, Ready, Failed, or
-  Studio offline with the line "Studio is offline, your photo will arrive
-  later." When ready the photo covers the stage with a 3D / Photo toggle;
+  to 6 pieces). Chip: Queued, Rendering, In review, Ready, Failed, Not
+  approved (a safety check or the parent said no; she sees that, not an
+  older photo), or Studio offline with the line "Studio is offline, your
+  photo will arrive later." When ready the photo covers the stage with a
+  3D / Photo toggle;
   the avatar stays loaded behind it. If she changed clothes since, the
   chip says "earlier look".
 - Runway: sending a look (or wearing a styled one) queues its photo. The
-  "Your look is in" card shows the chip. Reveal and podium show the photo
+  "Your look is in" card shows the chip ("earlier look" when the photo is
+  of a look she has since changed). Reveal and podium show the photo
   when `photo_path` is there, with the avatar behind it: tap the photo or
   the "🧍 3D" pill to flip, "📸 Photo" to flip back. Podium cards, the
   "skip to the list" rows and the Lookbook show the photo thumbnail when

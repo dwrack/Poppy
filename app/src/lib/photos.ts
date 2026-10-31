@@ -92,7 +92,9 @@ export function useMyPhotoJobs(kind: PhotoKind, entryId?: string) {
 
   /** Add a job I just queued without waiting for the round trip. */
   const add = useCallback((job: PhotoJob) => setJobs((js) => [job, ...js.filter((j) => j.id !== job.id)]), [])
-  return { jobs, latest: jobs.find((j) => j.status !== 'rejected'), live, refresh, add }
+  // Only a request she replaced before it started steps aside. A newer photo that failed or was
+  // rejected (a safety check, or a parent) is what she sees, never an older photo standing in for it.
+  return { jobs, latest: jobs.find((j) => !(j.status === 'rejected' && j.error === 'superseded')), live, refresh, add }
 }
 
 /** Is the studio Mac awake? Reads its heartbeat; offline when the row is missing or older than 10 minutes. */
@@ -143,12 +145,18 @@ export function photoChip(job: PhotoJob | undefined, studioOnline: boolean): { l
     case 'review': return { label: 'In review', tone: 'wait', offline: false }
     case 'done': return { label: 'Ready', tone: 'ok', offline: false }
     case 'failed': return { label: 'Failed', tone: 'bad', offline: false }
+    case 'rejected': return job.error === 'superseded' ? null : { label: 'Not approved', tone: 'bad', offline: false }
     default: return null
   }
 }
 
-/** Same pieces, any order. */
-export function sameLook(a: string[], b: string[]) {
-  const x = new Set(a.slice(0, MAX_PHOTO_PIECES)), y = new Set(b.slice(0, MAX_PHOTO_PIECES))
-  return x.size === y.size && [...x].every((id) => y.has(id))
+/**
+ * Is this job a photo of the look as it stands? The rule entry_photo_job()
+ * uses in v8-photoreal.sql: every piece of the job is still in the look,
+ * and it has as many pieces as a photo holds (all of them, or
+ * MAX_PHOTO_PIECES when the look has more).
+ */
+export function coversLook(job: Pick<PhotoJob, 'item_ids'>, look: string[]) {
+  const ids = new Set(look)
+  return job.item_ids.every((id) => ids.has(id)) && new Set(job.item_ids).size === Math.min(MAX_PHOTO_PIECES, ids.size)
 }

@@ -42,6 +42,9 @@
 --   studio_status  one row (id 1), the worker's heartbeat. Older than 10
 --                  minutes, or missing, means the studio is offline.
 --   entries.photo_job_id  set by the worker when an entry job is done.
+--                  The runway does not go by it: it shows
+--                  entry_photo_job(entry), the newest done job whose
+--                  pieces are the look as it stands.
 --   photoreal      private bucket. You read your own photos once they
 --                  are done (a render waiting for parent review is not
 --                  readable, not even by you); a squad mate reads a
@@ -87,6 +90,8 @@ begin
   new.created_at := now();
   new.started_at := null;
   new.finished_at := null;
+  -- each piece once, in the order asked (entry_photo_job counts them)
+  new.item_ids := array(select x from unnest(new.item_ids) with ordinality u(x, n) group by x order by min(n));
   if new.kind = 'entry' then
     -- your own runway look only, and the round comes from the entry
     select e.round_id into new.round_id from entries e where e.id = new.entry_id and e.user_id = new.user_id;
@@ -127,9 +132,33 @@ drop trigger if exists photo_jobs_supersede on photo_jobs;
 create trigger photo_jobs_supersede after insert on photo_jobs
   for each row execute function photo_jobs_supersede();
 
--- Policies: owner inserts and reads; squad mates read a finished runway
--- photo once the round's reveal has started; nobody but the worker
--- (service role, which skips RLS) updates or deletes.
+-- The photo of a runway look as it stands: the newest done job for that
+-- entry whose pieces are all still in the look and that covers as much of
+-- it as one photo holds (every piece, or 6 when the look has more). A
+-- render of a look she has since changed never stands in for the current
+-- one, whether the newer job is still waiting, failed, was rejected, or
+-- was never queued at all (an offline phone, an old build). The runway
+-- cards, the squad's read of photo_jobs and the squad's read of the
+-- bucket all go through this one rule.
+create or replace function entry_photo_job(e uuid) returns uuid
+language sql stable security definer set search_path = public as $$
+  select j.id
+  from entries en
+  cross join lateral (
+    select array_agg(distinct x.id) as ids
+    from jsonb_array_elements_text(coalesce(en.outfit->'items', '[]'::jsonb)) x(id)) look
+  join photo_jobs j on j.entry_id = en.id
+  where en.id = e and j.kind = 'entry' and j.status = 'done'
+    and j.item_ids::text[] <@ look.ids
+    and cardinality(j.item_ids) = least(6, cardinality(look.ids))
+  order by j.created_at desc, j.id desc
+  limit 1
+$$;
+
+-- Policies: owner inserts and reads; squad mates read the photo of a
+-- runway look as it stands (entry_photo_job) once the round's reveal has
+-- started; nobody but the worker (service role, which skips RLS) updates
+-- or deletes.
 drop policy if exists "ask for your own photo" on photo_jobs;
 create policy "ask for your own photo" on photo_jobs for insert
   with check (user_id = auth.uid());
@@ -138,7 +167,8 @@ create policy "see your own photo jobs" on photo_jobs for select
   using (user_id = auth.uid());
 drop policy if exists "squad sees runway photos after the reveal" on photo_jobs;
 create policy "squad sees runway photos after the reveal" on photo_jobs for select
-  using (status = 'done' and kind = 'entry' and round_id is not null and round_revealed(round_id));
+  using (status = 'done' and kind = 'entry' and round_id is not null and round_revealed(round_id)
+         and id = entry_photo_job(entry_id));
 revoke update, delete on photo_jobs from anon, authenticated;
 revoke insert on photo_jobs from anon;
 
@@ -163,14 +193,16 @@ insert into storage.buckets (id, name, public)
 values ('photoreal', 'photoreal', false)
 on conflict (id) do update set public = false;
 
--- Can the signed-in player open this rendered photo? Only a finished
--- runway photo, and only once the round's reveal has started (which also
--- means she is in that squad).
+-- Can the signed-in player open this rendered photo? Only the photo of a
+-- runway look as it stands (entry_photo_job: never a look she replaced),
+-- and only once the round's reveal has started (which also means she is
+-- in that squad).
 create or replace function can_see_photo(name text) returns boolean
 language sql stable security definer set search_path = public as $$
   select exists (select 1 from photo_jobs j
     where j.result_path = name and j.status = 'done' and j.kind = 'entry'
-      and j.round_id is not null and round_revealed(j.round_id))
+      and j.round_id is not null and round_revealed(j.round_id)
+      and j.id = entry_photo_job(j.entry_id))
 $$;
 
 -- Can the signed-in player open her own rendered photo? Only once it is
@@ -200,20 +232,18 @@ do $$ begin
 end $$;
 
 -- round_entry_cards_v2, as v4b defines it, except photo_path is now the
--- rendered photo: the newest photo job for that entry, if it is done
--- (an older done photo would show a look she has since changed). Same
--- columns, same visibility (squad only; another player's entry only from
--- the reveal on). Phones on the old build sign photo_path from the
--- closet bucket, get nothing back and keep showing the avatar.
+-- rendered photo of the look as it stands (entry_photo_job), so never a
+-- look she has since changed. Same columns, same visibility (squad only;
+-- another player's entry only from the reveal on). Phones on the old
+-- build sign photo_path from the closet bucket, get nothing back and keep
+-- showing the avatar.
 drop function if exists round_entry_cards_v2(uuid);
 create function round_entry_cards_v2(r uuid)
 returns table (entry_id uuid, user_id uuid, display_name text, emoji text, outfit jsonb,
                photo_path text, submitted_at timestamptz, pieces jsonb, styled_by text, avatar jsonb)
 language sql stable security definer set search_path = public as $$
   select e.id, e.user_id, m.display_name, m.emoji, e.outfit,
-    (select case when j.status = 'done' then j.result_path end
-       from photo_jobs j where j.entry_id = e.id and j.status <> 'rejected'
-       order by j.created_at desc limit 1),
+    (select j.result_path from photo_jobs j where j.id = entry_photo_job(e.id)),
     e.submitted_at,
     coalesce((
       select jsonb_agg(jsonb_build_object('id', i.id, 'name', i.name, 'category', i.category,

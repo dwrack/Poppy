@@ -39,12 +39,14 @@ do $$ declare g uuid := current_setting('smoke.g')::uuid; begin
   end;
 end $$;
 
--- One closet piece each (photo paths are only text here). Colours and a
+-- One closet piece each (photo paths are only text here), plus a second
+-- piece of a's that she puts on later (v8: a changed look). Colours and a
 -- pattern on a's piece, and avatar presets for a, so the v4b avatar cards
 -- have something to carry.
 insert into items (id, user_id, name, category, photo_path, cutout_path, colours, pattern) values
   ('10000000-0000-0000-0000-00000000000a', '00000000-0000-0000-0000-00000000000a', 'a top', 'top', 'a/p.jpg', 'a/c.png', '{red,black}', 'stripe'),
-  ('10000000-0000-0000-0000-00000000000b', '00000000-0000-0000-0000-00000000000b', 'b top', 'top', 'b/p.jpg', 'b/c.png', '{blue}', 'solid')
+  ('10000000-0000-0000-0000-00000000000b', '00000000-0000-0000-0000-00000000000b', 'b top', 'top', 'b/p.jpg', 'b/c.png', '{blue}', 'solid'),
+  ('10000000-0000-0000-0000-0000000000a2', '00000000-0000-0000-0000-00000000000a', 'a skirt', 'bottom', 'a/p2.jpg', 'a/c2.png', '{denim}', 'solid')
 on conflict do nothing;
 insert into avatar_presets (user_id, face, skin, hair, hair_colour, eyes) values
   ('00000000-0000-0000-0000-00000000000a', 'sunny', 'tan', 'bob', 'pink', 'green')
@@ -231,21 +233,74 @@ do $$ begin
   assert (select count(*) from storage.objects where bucket_id = 'photoreal') = 0, 'v8: outsider reads no photoreal files';
 end $$;
 reset role;
--- A newer request for the same look hides the old photo until it is done (it would show the wrong outfit).
+-- Asking again for the same look leaves its finished photo up meanwhile; then the newest done photo wins,
+-- and it is the only one of that look the squad can open.
 select pg_temp.act_as('a');
 set role authenticated;
 do $$ declare r uuid := current_setting('smoke.r')::uuid; ea uuid := current_setting('smoke.ea')::uuid; begin
-  insert into photo_jobs (kind, entry_id, item_ids) values ('entry', ea, '{10000000-0000-0000-0000-00000000000a}');
-  assert (select photo_path from round_entry_cards_v2(r) where user_id = auth.uid()) is null, 'v8: newest job not done yet, so no photo';
+  insert into photo_jobs (kind, entry_id, item_ids) values ('entry', ea, '{10000000-0000-0000-0000-00000000000a,10000000-0000-0000-0000-00000000000a}');
+  assert (select item_ids from photo_jobs where entry_id = ea and status = 'queued') = '{10000000-0000-0000-0000-00000000000a}', 'v8: a piece asked twice is kept once';
+  assert (select photo_path from round_entry_cards_v2(r) where user_id = auth.uid()) = current_setting('smoke.jpath'), 'v8: same look asked again: its finished photo stays up meanwhile';
 end $$;
 reset role;
 update photo_jobs set status = 'done', result_path = user_id::text || '/' || id::text || '.jpg', finished_at = now()
   where entry_id = current_setting('smoke.ea')::uuid and status = 'queued';
+select set_config('smoke.jpath2', (select result_path from photo_jobs where entry_id = current_setting('smoke.ea')::uuid order by created_at desc limit 1), false);
+select pg_temp.act_as('b');
+set role authenticated;
 do $$ declare r uuid := current_setting('smoke.r')::uuid; begin
-  perform set_config('request.jwt.claim.sub', '00000000-0000-0000-0000-00000000000b', false);
-  assert (select photo_path from round_entry_cards_v2(r) where user_id = '00000000-0000-0000-0000-00000000000a')
-       = (select result_path from photo_jobs where entry_id = current_setting('smoke.ea')::uuid order by created_at desc limit 1), 'v8: the newest done photo wins';
+  assert (select photo_path from round_entry_cards_v2(r) where user_id = '00000000-0000-0000-0000-00000000000a') = current_setting('smoke.jpath2'), 'v8: the newest done photo wins';
+  assert can_see_photo(current_setting('smoke.jpath2')) and not can_see_photo(current_setting('smoke.jpath')), 'v8: b opens only the photo the card shows';
+  assert (select count(*) from photo_jobs) = 1, 'v8: b sees one runway job for the look';
 end $$;
+reset role;
+
+-- Her look changes (a second piece of hers goes on). The old look's photo comes down at once, from her
+-- card, the squad's job read and the bucket, whether or not a new photo was ever asked for.
+update entries set outfit = '{"items":["10000000-0000-0000-0000-00000000000a","10000000-0000-0000-0000-0000000000a2"],"borrowed":[]}'
+  where id = current_setting('smoke.ea')::uuid;
+select pg_temp.act_as('b');
+set role authenticated;
+do $$ declare r uuid := current_setting('smoke.r')::uuid; begin
+  assert (select photo_path from round_entry_cards_v2(r) where user_id = '00000000-0000-0000-0000-00000000000a') is null, 'v8: look changed: no photo of the old look on her card';
+  assert not can_see_photo(current_setting('smoke.jpath2')), 'v8: look changed: b cannot open the old look''s photo';
+  assert (select count(*) from photo_jobs) = 0, 'v8: look changed: b sees no runway job';
+end $$;
+reset role;
+-- The new look's photo fails a safety check: the avatar, not the old look.
+select pg_temp.act_as('a');
+insert into photo_jobs (kind, entry_id, item_ids) values ('entry', current_setting('smoke.ea')::uuid, '{10000000-0000-0000-0000-00000000000a,10000000-0000-0000-0000-0000000000a2}');
+update photo_jobs set status = 'rejected', error = 'face changed', finished_at = now()
+  where entry_id = current_setting('smoke.ea')::uuid and status = 'queued';
+select pg_temp.act_as('b');
+set role authenticated;
+do $$ declare r uuid := current_setting('smoke.r')::uuid; begin
+  assert (select photo_path from round_entry_cards_v2(r) where user_id = '00000000-0000-0000-0000-00000000000a') is null, 'v8: new look rejected: the avatar, never the old look';
+  assert not can_see_photo(current_setting('smoke.jpath2')), 'v8: new look rejected: the old look stays closed';
+end $$;
+reset role;
+-- Asked again, it comes out fine and shows; then the parent rejects it after all: the avatar again, not the old look.
+select pg_temp.act_as('a');
+insert into photo_jobs (kind, entry_id, item_ids) values ('entry', current_setting('smoke.ea')::uuid, '{10000000-0000-0000-0000-00000000000a,10000000-0000-0000-0000-0000000000a2}');
+update photo_jobs set status = 'done', result_path = user_id::text || '/' || id::text || '.jpg', finished_at = now()
+  where entry_id = current_setting('smoke.ea')::uuid and status = 'queued';
+select set_config('smoke.jpath3', (select result_path from photo_jobs where entry_id = current_setting('smoke.ea')::uuid and status = 'done' order by created_at desc limit 1), false);
+select pg_temp.act_as('b');
+set role authenticated;
+do $$ declare r uuid := current_setting('smoke.r')::uuid; begin
+  assert (select photo_path from round_entry_cards_v2(r) where user_id = '00000000-0000-0000-0000-00000000000a') = current_setting('smoke.jpath3'), 'v8: the new look''s photo shows';
+  assert can_see_photo(current_setting('smoke.jpath3')), 'v8: b opens the new look''s photo';
+end $$;
+reset role;
+update photo_jobs set status = 'rejected', error = 'parent rejected' where result_path = current_setting('smoke.jpath3');
+select pg_temp.act_as('b');
+set role authenticated;
+do $$ declare r uuid := current_setting('smoke.r')::uuid; begin
+  assert (select photo_path from round_entry_cards_v2(r) where user_id = '00000000-0000-0000-0000-00000000000a') is null, 'v8: parent rejected the photo on show: the avatar, not the old look';
+  assert not can_see_photo(current_setting('smoke.jpath3')) and not can_see_photo(current_setting('smoke.jpath2')), 'v8: after the rejection b opens neither photo';
+  assert (select count(*) from photo_jobs) = 0, 'v8: after the rejection b sees no runway job';
+end $$;
+reset role;
 
 -- Votes. a: self-vote must be rejected by RLS, vote on b's look allowed.
 select pg_temp.act_as('a');

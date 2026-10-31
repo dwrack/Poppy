@@ -8,7 +8,7 @@ import {
   packFor, phaseEnds, rank, seededShuffle, setSquadTimeZone, startRoundNow, submitEntry, useActivePack, useRound, useSubmitted, SEASON_ROUNDS,
   type Chip, type EntryCard, type MyEntry, type PastRound, type Result, type Round, type Vote,
 } from '../lib/game'
-import { queueEntryPhoto, useMyPhotoJobs, useStudio } from '../lib/photos'
+import { coversLook, queueEntryPhoto, useMyPhotoJobs, useStudio } from '../lib/photos'
 import { useObjectUrl } from '../lib/useObjectUrl'
 import { CATEGORIES, CATEGORY_LABEL, type Category, type Item } from '../types'
 import { AvatarStage } from './AvatarStage'
@@ -186,7 +186,7 @@ function OpenRound({ round, userId, members, now, onAdd }: { round: Round; userI
         </div>
         {styledBy && <p className="mt-2 text-center text-xs font-bold text-poppy">✨ Styled by {styledBy}</p>}
         {lent.length > 0 && <p className="mt-1 text-center text-xs text-mute">Borrowed: {lent.map((p) => `${p.name} from ${p.owner}`).join(', ')}</p>}
-        <EntryPhoto entryId={entry.id} />
+        <EntryPhoto entryId={entry.id} look={entry.outfit.items} />
         <p className="mt-3 text-center text-xs text-mute">Nobody sees it until the runway. No copying possible.</p>
       </section>
       <StyledLooks looks={forMe} wornId={wornId} onWear={wear} />
@@ -195,12 +195,17 @@ function OpenRound({ round, userId, members, now, onAdd }: { round: Round; userI
   )
 }
 
-/** Where the studio is with the photo of my runway look. Hidden until a job exists. */
-function EntryPhoto({ entryId }: { entryId: string }) {
+/**
+ * Where the studio is with the photo of my runway look. Hidden until a job
+ * exists. A photo of a look she has since changed never shows on the
+ * runway (entry_photo_job), so the chip says "earlier look" instead.
+ */
+function EntryPhoto({ entryId, look }: { entryId: string; look: string[] }) {
   const { latest } = useMyPhotoJobs('entry', entryId)
   const { online } = useStudio()
   if (!latest) return null
-  return <PhotoChip job={latest} online={online} className="mt-2 text-center" note={latest.status === 'done' ? 'shows on the runway' : undefined} />
+  const note = !coversLook(latest, look) ? 'earlier look' : latest.status === 'done' ? 'shows on the runway' : undefined
+  return <PhotoChip job={latest} online={online} className="mt-2 text-center" note={note} />
 }
 
 /** A small picture of a look: the photo-real render when there is one, else the cutout stack. */

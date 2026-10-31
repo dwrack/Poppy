@@ -2,7 +2,7 @@ import { useLiveQuery } from 'dexie-react-hooks'
 import { useMemo, useState } from 'react'
 import { db } from '../db'
 import { presetsToLook } from '../lib/avatarSync'
-import { queuePhoto, sameLook, usePhotoUrl, useMyPhotoJobs, useStudio } from '../lib/photos'
+import { coversLook, queuePhoto, usePhotoUrl, useMyPhotoJobs, useStudio } from '../lib/photos'
 import { useObjectUrl } from '../lib/useObjectUrl'
 import {
   garmentOf, OUTFIT_SLOTS, SLOT_CATEGORY, SLOT_LABEL, slotOf, type Item, type Outfit, type OutfitSlot,
@@ -65,7 +65,7 @@ export default function DressMe({ onClose }: { onClose: () => void }) {
   const job = photos.latest
   const photoUrl = usePhotoUrl(job?.status === 'done' ? job.result_path : null)
   const showPhoto = !!photoUrl && (view && view.job === job?.id ? view.photo : true)
-  const earlier = !!job && wornIds.length > 0 && !sameLook(job.item_ids, wornIds)
+  const earlier = !!job && wornIds.length > 0 && !coversLook(job, wornIds)
 
   async function askForPhoto() {
     if (!wornIds.length || asking) return
