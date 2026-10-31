@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from 'react'
 import { BUCKET, supabase } from './supabase'
 import { signPaths } from './friends'
+import { signPhotos } from './photos'
 import { downscale } from './cutout'
 import { loadLooks } from './avatarSync'
 import { DEFAULT_LOOK, garmentOf, slotOf, type AvatarLook, type Category, type Colour, type Pattern, type Outfit as AvatarOutfit } from '../types'
@@ -22,6 +23,7 @@ export interface Piece { id: string; name: string; category: Category; cutout_pa
 export interface Outfit { items: string[]; borrowed?: string[] }
 export interface EntryCard {
   entry_id: string; user_id: string; display_name: string; emoji: string; outfit: Outfit
+  /** the studio's photo-real render of this look (bucket photoreal), once v8-photoreal.sql is pasted and the photo is done */
   photo_path: string | null; photoUrl?: string; submitted_at: string; pieces: Piece[]; styled_by: string | null
   /** the entrant's avatar presets; the default look when she has not set any */
   look: AvatarLook
@@ -166,13 +168,14 @@ export async function loadMyEntry(roundId: string, userId: string): Promise<MyEn
   return (data as MyEntry | null) ?? null
 }
 
-/** Save my look. `borrowed` lists which of the ids are a friend's pieces (with a yes for this round). A hand-built look is never a styled one. */
-export async function submitEntry(roundId: string, userId: string, itemIds: string[], borrowed: string[] = []) {
-  const { error } = await supabase.from('entries').upsert(
+/** Save my look. `borrowed` lists which of the ids are a friend's pieces (with a yes for this round). A hand-built look is never a styled one. Returns the entry id. */
+export async function submitEntry(roundId: string, userId: string, itemIds: string[], borrowed: string[] = []): Promise<string | undefined> {
+  const { data, error } = await supabase.from('entries').upsert(
     { round_id: roundId, user_id: userId, outfit: { items: itemIds, borrowed }, styled_look_id: null, submitted_at: new Date().toISOString() },
     { onConflict: 'round_id,user_id' },
-  )
+  ).select('id').maybeSingle()
   if (error) throw new Error(error.message.replace(/^.*?: /, ''))
+  return (data as { id: string } | null)?.id
 }
 
 /** Who has a look in so far. Names only, never the looks. */
@@ -226,13 +229,15 @@ export async function loadRunway(roundId: string): Promise<EntryCard[]> {
     look: avatar ? { face: avatar.face, skin: avatar.skin, hair: avatar.hair, hairColour: avatar.hair_colour, eyes: avatar.eyes } as AvatarLook
       : fallback?.get(c.user_id) ?? DEFAULT_LOOK,
   }))
-  const paths = cards.flatMap((c) => [...c.pieces.map((p) => p.cutout_path), ...(c.photo_path ? [c.photo_path] : [])])
-  if (paths.length) {
-    const byPath = await signPaths(paths)
-    for (const c of cards) {
-      for (const p of c.pieces) p.url = byPath.get(p.cutout_path)
-      if (c.photo_path) c.photoUrl = byPath.get(c.photo_path)
-    }
+  const paths = cards.flatMap((c) => c.pieces.map((p) => p.cutout_path))
+  const photos = cards.flatMap((c) => (c.photo_path ? [c.photo_path] : []))
+  const [byPath, byPhoto] = await Promise.all([
+    paths.length ? signPaths(paths) : new Map<string, string>(),
+    signPhotos(photos).catch(() => new Map<string, string>()),
+  ])
+  for (const c of cards) {
+    for (const p of c.pieces) p.url = byPath.get(p.cutout_path)
+    if (c.photo_path) c.photoUrl = byPhoto.get(c.photo_path)
   }
   return cards
 }

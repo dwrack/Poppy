@@ -18,9 +18,9 @@ export const APP_URL = 'https://dwrack.github.io/Poppy/v2/'
 
 const STORAGE = 'https://yrcddfehjjbtzwuotmym.supabase.co/storage/v1'
 
-/** Signed photo links for many paths at once, keyed by path. */
-export async function signPaths(paths: string[]): Promise<Map<string, string>> {
-  const { data } = await supabase.storage.from(BUCKET).createSignedUrls(paths, 3600)
+/** Signed photo links for many paths at once, keyed by path. `bucket` is the closet unless said otherwise (photo-real renders live in their own). */
+export async function signPaths(paths: string[], bucket: string = BUCKET): Promise<Map<string, string>> {
+  const { data } = await supabase.storage.from(bucket).createSignedUrls(paths, 3600)
   const out = new Map<string, string>()
   for (const u of (data ?? []) as { path: string | null; signedUrl?: string; signedURL?: string }[]) {
     const link = u.signedUrl || (u.signedURL ? STORAGE + u.signedURL : '')
