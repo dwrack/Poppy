@@ -30,4 +30,14 @@ export default defineConfig({
     }),
   ],
   optimizeDeps: { exclude: ['@imgly/background-removal'] },
+  build: {
+    rollupOptions: {
+      output: {
+        // three, react-three and three-vrm in one chunk that only the avatar views import
+        manualChunks(id) {
+          if (/node_modules\/(three|@react-three|@pixiv|three-stdlib|maath|zustand|suspend-react|its-fine|react-reconciler|camera-controls|detect-gpu|react-use-measure|tunnel-rat)\//.test(id)) return 'avatar-vendor'
+        },
+      },
+    },
+  },
 })
