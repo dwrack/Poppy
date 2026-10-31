@@ -329,5 +329,179 @@ do $$ declare g uuid := current_setting('smoke.g')::uuid; up uuid; begin
   assert (select theme_pick_id from rounds where id = up) is not null, 'pick untouched by non-winner';
 end $$;
 reset role;
+
+-- v9 family squads -----------------------------------------------------------
+-- Poppy (a) starts "Rack Family" next to Smoke Squad and makes two codes;
+-- Penny (e) and Dad (f) sign up with them. Penny starts her own friends'
+-- squad and Bea (b, already in Smoke Squad) joins it with a code. So a and
+-- e share only the family squad, e and b share only Penny's.
+select pg_temp.act_as('a');
+set role authenticated;
+select set_config('smoke.gf', create_group('Rack Family', 'Poppy', '🏠')::text, false);
+select set_config('smoke.code1', make_invite(current_setting('smoke.gf')::uuid), false);
+select set_config('smoke.code2', make_invite(current_setting('smoke.gf')::uuid), false);
+do $$ begin
+  assert (select count(*) from group_members where user_id = auth.uid()) = 2, 'v9: a is in two squads';
+end $$;
+reset role;
+insert into auth.users (id, email, raw_user_meta_data) values
+  ('00000000-0000-0000-0000-00000000000e', 'penny@test', jsonb_build_object('invite_code', current_setting('smoke.code1'), 'display_name', 'Penny')),
+  ('00000000-0000-0000-0000-00000000000f', 'dad@test', jsonb_build_object('invite_code', current_setting('smoke.code2'), 'display_name', 'Dad'));
+insert into items (id, user_id, name, category, photo_path, cutout_path) values
+  ('10000000-0000-0000-0000-00000000000e', '00000000-0000-0000-0000-00000000000e', 'e top', 'top', 'e/p.jpg', 'e/c.png'),
+  ('10000000-0000-0000-0000-00000000000f', '00000000-0000-0000-0000-00000000000f', 'f top', 'top', 'f/p.jpg', 'f/c.png')
+on conflict do nothing;
+do $$ declare gf uuid := current_setting('smoke.gf')::uuid; begin
+  assert (select count(*) from group_members where group_id = gf) = 3, 'v9: Penny and Dad signed up into the family squad';
+  assert (select count(*) from group_members where user_id = '00000000-0000-0000-0000-00000000000e') = 1, 'v9: Penny starts in the family squad only';
+end $$;
+
+select pg_temp.act_as('e');
+set role authenticated;
+select set_config('smoke.gp', create_group('Penny Friends', 'Penny', '🐰')::text, false);
+select set_config('smoke.codep', make_invite(current_setting('smoke.gp')::uuid), false);
+reset role;
+select pg_temp.act_as('b');
+set role authenticated;
+do $$ begin
+  assert join_group(current_setting('smoke.codep'), 'Bea', '🦋') = current_setting('smoke.gp')::uuid, 'v9: an account already in a squad joins another';
+  assert (select count(*) from group_members where user_id = auth.uid()) = 2, 'v9: Bea is in Smoke Squad and Penny Friends';
+end $$;
+reset role;
+select pg_temp.act_as('e');
+set role authenticated;
+do $$ begin
+  assert (select count(*) from group_members where user_id = auth.uid()) = 2, 'v9: Penny is in her squad and the family squad';
+  assert (select count(distinct group_id) from group_members) = 2, 'v9: Penny sees the members of both her squads';
+end $$;
+reset role;
+select pg_temp.act_as('a');
+set role authenticated;
+do $$ begin
+  assert (select count(*) from groups) = 2, 'v9: a sees her two squads, not Penny Friends';
+end $$;
+-- A code for a squad you are already in is refused and stays unused.
+select set_config('smoke.code3', make_invite(current_setting('smoke.gf')::uuid), false);
+do $$ begin
+  begin
+    perform join_group(current_setting('smoke.code3'), 'Poppy', '🌸');
+    raise exception 'v9: joining a squad you are already in was accepted';
+  exception when raise_exception then
+    if sqlerrm not like 'You are already in that squad%' then raise; end if;
+  end;
+end $$;
+reset role;
+do $$ begin
+  assert (select used_by from invites where code = current_setting('smoke.code3')) is null, 'v9: the refused code is still unused';
+end $$;
+
+-- Penny's friends play a round. Starting it also opens the family squad's
+-- first round (every squad always has one queued).
+select pg_temp.act_as('e');
+set role authenticated;
+select set_config('smoke.rp', start_round_now(current_setting('smoke.gp')::uuid)::text, false);
+do $$ begin
+  insert into entries (round_id, outfit) values (current_setting('smoke.rp')::uuid, '{"items":["10000000-0000-0000-0000-00000000000e"],"borrowed":[]}');
+end $$;
+reset role;
+select set_config('smoke.rf', (select id::text from rounds where group_id = current_setting('smoke.gf')::uuid and status = 'open'), false);
+do $$ begin
+  assert current_setting('smoke.rf', true) <> '', 'v9: the family squad has an open round';
+end $$;
+select pg_temp.act_as('b');
+set role authenticated;
+do $$ begin
+  insert into entries (round_id, outfit) values (current_setting('smoke.rp')::uuid, '{"items":["10000000-0000-0000-0000-00000000000b"],"borrowed":[]}');
+end $$;
+reset role;
+update rounds set closes_at = now(), reveal_at = now(), voting_ends_at = now() + interval '12 hours'
+  where id = current_setting('smoke.rp')::uuid;
+select advance_rounds();
+select pg_temp.act_as('e');
+set role authenticated;
+do $$ begin
+  insert into votes (entry_id, stars, chip)
+    select id, 5, 'fit' from entries where round_id = current_setting('smoke.rp')::uuid and user_id = '00000000-0000-0000-0000-00000000000b';
+end $$;
+reset role;
+select pg_temp.act_as('b');
+set role authenticated;
+do $$ declare rp uuid := current_setting('smoke.rp')::uuid; begin
+  insert into votes (entry_id, stars, chip)
+    select id, 4, 'brave' from entries where round_id = rp and user_id = '00000000-0000-0000-0000-00000000000e';
+  perform advance_rounds();
+  assert (select status from rounds where id = rp) = 'done', 'v9: Penny Friends round finished';
+end $$;
+reset role;
+
+-- Each ladder counts its own squad's stars only (v5 summed every squad).
+-- Bea: Smoke Squad 4 votes + 2 finished + 1 voted = 7; Penny Friends 5 + 2 + 1 = 8.
+select pg_temp.act_as('b');
+set role authenticated;
+do $$ declare b uuid := '00000000-0000-0000-0000-00000000000b'; begin
+  assert (select stars from squad_ladder(current_setting('smoke.g')::uuid) where user_id = b) = 7, 'v9: Smoke Squad ladder has Bea''s Smoke Squad stars only';
+  assert (select stars from squad_ladder(current_setting('smoke.gp')::uuid) where user_id = b) = 8, 'v9: Penny Friends ladder has Bea''s Penny Friends stars only';
+  assert (select sum(amount) from stars_ledger where user_id = auth.uid()) = 15, 'v9: Bea still reads all her own stars (lifetime)';
+  assert (select count(*) from stars_ledger where user_id = '00000000-0000-0000-0000-00000000000e') = 3, 'v9: Bea sees Penny''s stars from the squad they share';
+end $$;
+reset role;
+select pg_temp.act_as('e');
+set role authenticated;
+do $$ declare e uuid := '00000000-0000-0000-0000-00000000000e'; begin
+  assert (select stars from squad_ladder(current_setting('smoke.gf')::uuid) where user_id = e) = 0, 'v9: Penny''s friends-squad stars stay off the family ladder';
+  assert (select stars from squad_ladder(current_setting('smoke.gp')::uuid) where user_id = e) = 7, 'v9: Penny Friends ladder: 4 + 2 + 1';
+end $$;
+reset role;
+-- Poppy shares only the family squad with Penny: none of Penny's friends-squad
+-- rows; with Bea she shares Smoke Squad: those 3 rows, not Bea's other 3.
+select pg_temp.act_as('a');
+set role authenticated;
+do $$ begin
+  assert (select count(*) from stars_ledger where user_id = '00000000-0000-0000-0000-00000000000e') = 0, 'v9: Poppy cannot read Penny''s stars from Penny''s other squad';
+  assert (select count(*) from stars_ledger where user_id = '00000000-0000-0000-0000-00000000000b') = 3, 'v9: Poppy reads Bea''s Smoke Squad stars only';
+end $$;
+reset role;
+
+-- In the family round, Penny can borrow from and style family only, not Bea
+-- (her friend from her other squad, not in this one).
+select pg_temp.act_as('e');
+set role authenticated;
+do $$ declare rf uuid := current_setting('smoke.rf')::uuid; begin
+  begin
+    insert into borrow_requests (item_id, owner_id, round_id) values ('10000000-0000-0000-0000-00000000000b', '00000000-0000-0000-0000-00000000000b', rf);
+    raise exception 'v9: borrow for the family round from someone outside it was accepted';
+  exception when insufficient_privilege then null;
+  end;
+  insert into borrow_requests (item_id, owner_id, round_id) values ('10000000-0000-0000-0000-00000000000a', '00000000-0000-0000-0000-00000000000a', rf);
+  begin
+    insert into styled_looks (round_id, to_user, item_ids, message_chip) values (rf, '00000000-0000-0000-0000-00000000000b', '{10000000-0000-0000-0000-00000000000b}', 'brave');
+    raise exception 'v9: styling someone outside the family round was accepted';
+  exception when insufficient_privilege then null;
+  end;
+  insert into styled_looks (round_id, to_user, item_ids, message_chip) values (rf, '00000000-0000-0000-0000-00000000000a', '{10000000-0000-0000-0000-00000000000a}', 'colour');
+  -- a plain Squad-tab request to Bea (a squad they share) still works
+  insert into borrow_requests (item_id, owner_id) values ('10000000-0000-0000-0000-00000000000b', '00000000-0000-0000-0000-00000000000b');
+end $$;
+reset role;
+
+-- Dad leaves the family squad; it carries on without him. The outsider sees none of it.
+select pg_temp.act_as('f');
+set role authenticated;
+do $$ begin
+  delete from group_members where group_id = current_setting('smoke.gf')::uuid and user_id = auth.uid();
+  assert (select count(*) from group_members where user_id = auth.uid()) = 0, 'v9: Dad left';
+end $$;
+reset role;
+select pg_temp.act_as('c');
+set role authenticated;
+do $$ begin
+  assert (select count(*) from groups) = 0, 'v9: outsider sees no squads';
+  assert (select count(*) from stars_ledger) = 0, 'v9: outsider sees no stars';
+end $$;
+reset role;
+do $$ begin
+  assert (select count(*) from group_members where group_id = current_setting('smoke.gf')::uuid) = 2, 'v9: family squad has Poppy and Penny after Dad left';
+end $$;
+
 \pset tuples_only off
 select 'SMOKE ASSERTS PASSED' as result;
