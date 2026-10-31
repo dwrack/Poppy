@@ -122,3 +122,10 @@ actual outfit, for every look she builds and every runway entry.
 2. Parent review on by default, or auto-approve from day one for Poppy?
 3. OK to free disk: delete the 9 GB FLUX.1-schnell cache and move Downloads
    to an external drive, or leave the disk alone for now?
+
+## Update 2026-10-31 evening
+
+- Base photo: built from 5 of her real face photos (2026 headshot plus 4 clear shots pulled from the "Poppy" person in the Mac's Photos library), full-length, no hat, grey tee and jeans, face refined with a masked pass. David confirmed it looks like her. Stored at `~/Projects/poppy-photoreal/private/refs/poppy/base-2026-10-31.png` (local only). Source face photos in `private/refs/poppy-face/` and `private/refs/poppy-src/`.
+- Try-on on the base photo works: hoodie plus pleated skirt in one pass, 50 s, 10 GB peak, clothes-only auto-mask.
+- Face lock fix for the worker: the clothes auto-mask box reached into her face (average drift about 8 of 255 in the face box). After each render, paste the base photo's head region back with a feathered mask so her face is pixel-identical every time.
+- Lessons: pass EXIF-corrected images (iPhone rotation); never give the model several face references without a mask (it makes a collage); always pass `--model qwen-image-2.1-turbo` (the default pulls a 33 GB repo) and `--low-ram`.
