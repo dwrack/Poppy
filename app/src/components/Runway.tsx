@@ -8,7 +8,7 @@ import {
   packFor, phaseEnds, rank, seededShuffle, setSquadTimeZone, startRoundNow, submitEntry, useActivePack, useRound, useSubmitted, SEASON_ROUNDS,
   type Chip, type EntryCard, type MyEntry, type PastRound, type Result, type Round, type Vote,
 } from '../lib/game'
-import { coversLook, ownPieces, queueEntryPhoto, useMyPhotoJobs, useStudio } from '../lib/photos'
+import { coversLook, ownPieces, queueEntryPhoto, useMyPhotoJobs, usePhotoAllowed, useStudio } from '../lib/photos'
 import { useObjectUrl } from '../lib/useObjectUrl'
 import { CATEGORIES, CATEGORY_LABEL, type Category, type Item } from '../types'
 import { AvatarStage } from './AvatarStage'
@@ -195,12 +195,17 @@ function OpenRound({ round, userId, members, now, onAdd }: { round: Round; userI
   )
 }
 
+/** Nothing photo-real on the runway card unless a parent switched it on for her (photoreal_children). */
+function EntryPhoto(props: { entryId: string; look: string[] }) {
+  return usePhotoAllowed() ? <EntryPhotoChip {...props} /> : null
+}
+
 /**
  * Where the studio is with the photo of my runway look. Hidden until a job
  * exists. A photo of a look she has since changed never shows on the
  * runway (entry_photo_job), so the chip says "earlier look" instead.
  */
-function EntryPhoto({ entryId, look }: { entryId: string; look: string[] }) {
+function EntryPhotoChip({ entryId, look }: { entryId: string; look: string[] }) {
   const { latest } = useMyPhotoJobs('entry', entryId)
   const { online } = useStudio()
   if (!latest) return null

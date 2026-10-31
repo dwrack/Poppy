@@ -14,6 +14,14 @@ trick in AVATAR-STEP2.md).
 ## What shipped
 
 **Database** (`supabase/v8-photoreal.sql`, paste after v7, see V3-PASTE-ORDER.md)
+- `photoreal_children`: a parent's yes, one row per child (user_id,
+  approved_by, approved_at). Only the service role writes it (SQL
+  Editor); a player reads her own row. Without one the insert trigger
+  refuses her photo jobs ("Photos are not switched on for you yet"), the
+  squad sees none of her photos, and the app shows no Photo button and
+  no chips and queues nothing. BRIEF-v4: a friend gets a row only once
+  her own parent has said yes and sent a reference photo. Deleting the
+  row stops new photos and takes her runway photos down for the squad.
 - `photo_jobs`: one row per requested photo. A trigger resets whatever
   the phone sent (status queued, attempts 0, no result/error/worker,
   user_id = the caller, round copied from the entry). Both kinds take
@@ -44,8 +52,10 @@ trick in AVATAR-STEP2.md).
   here.
 
 **App**
-- `app/src/lib/photos.ts`: `queuePhoto`, `queueEntryPhoto` (fire and
-  forget), `useMyPhotoJobs` (Realtime on her own rows plus a poll: 15 s
+- `app/src/lib/photos.ts`: `photoAllowed` / `usePhotoAllowed` (her row
+  in `photoreal_children`, checked again on focus), `queuePhoto`,
+  `queueEntryPhoto` (fire and forget, and only with a parent's yes),
+  `useMyPhotoJobs` (Realtime on her own rows plus a poll: 15 s
   while pending with the socket down, 60 s while pending and live, 2 min
   otherwise), `useStudio` (offline when no heartbeat or older than
   10 minutes), `signPhotos` / `usePhotoUrl` through `signPaths` with the
@@ -77,6 +87,8 @@ trick in AVATAR-STEP2.md).
 - `studio_status` (id 1): last_seen_at, worker, queue_depth. Offline when
   missing or older than 10 minutes.
 - `entries.photo_job_id`: worker sets it when an entry job is done.
+- `photoreal_children`: the worker checks the job owner's row before it
+  renders, the same row the insert trigger checks.
 - Garment cutouts: `items.cutout_path` / `items.photo_path` in the
   `closet` bucket.
 - Worker auth: service role key in `~/.config/poppy/service_key` only.
@@ -84,6 +96,9 @@ trick in AVATAR-STEP2.md).
 ## What to test
 
 1. Paste v8 (V3-PASTE-ORDER.md step 7). Storage shows `photoreal` locked.
+   Before Poppy's row is in `photoreal_children`, Dress me and "Your
+   look is in" show no Photo button and no chip. Add her row (v8 header,
+   step 6) and refocus the app: the button appears.
 2. Worker off: Closet > Dress me, put on a top and a bottom, tap Photo.
    Chip reads "Studio offline" and "Studio is offline, your photo will
    arrive later." `select status from photo_jobs order by created_at desc limit 2;`

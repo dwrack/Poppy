@@ -32,6 +32,32 @@ function friendly(e: { message: string }) {
   return new Error(e.message.replace(/^.*?: /, ''))
 }
 
+/**
+ * Has a parent switched photo-real looks on for me? Their yes is my row in
+ * photoreal_children, which only the studio side can write (v8). No row, or
+ * v8 not pasted yet: no Photo button, no chips, nothing queued.
+ */
+export async function photoAllowed(): Promise<boolean> {
+  const { data: { session } } = await supabase.auth.getSession()
+  const uid = session?.user.id
+  if (!uid) return false
+  const { data, error } = await supabase.from('photoreal_children').select('user_id').eq('user_id', uid).maybeSingle()
+  return !error && !!data
+}
+
+/** photoAllowed(), checked again whenever the app comes back to the front. False until known. */
+export function usePhotoAllowed() {
+  const [allowed, setAllowed] = useState(false)
+  useEffect(() => {
+    let on = true
+    const check = () => { photoAllowed().then((a) => { if (on) setAllowed(a) }, () => {}) }
+    check()
+    window.addEventListener('focus', check)
+    return () => { on = false; window.removeEventListener('focus', check) }
+  }, [])
+  return allowed
+}
+
 /** Ask the studio for a photo. Dress me: pieces from her own closet. Entry: her own pieces in that runway look. */
 export async function queuePhoto(kind: PhotoKind, itemIds: string[], entryId?: string): Promise<PhotoJob> {
   const item_ids = [...new Set(itemIds)].slice(0, MAX_PHOTO_PIECES)
@@ -45,14 +71,17 @@ export async function queuePhoto(kind: PhotoKind, itemIds: string[], entryId?: s
 
 /**
  * Queue the photo for a runway look. Fire and forget: the reveal falls back
- * to the avatar if it never arrives. Borrowed pieces are dropped: a friend's
- * piece never goes onto her photo (her account can swap the image behind it
- * after the borrow was approved), it stays a cutout card beside it.
+ * to the avatar if it never arrives. Nothing is queued unless a parent
+ * switched photos on for her (photoAllowed). Borrowed pieces are dropped: a
+ * friend's piece never goes onto her photo (her account can swap the image
+ * behind it after the borrow was approved), it stays a cutout card beside it.
  */
 export function queueEntryPhoto(entryId: string, itemIds: string[], borrowed: string[] = []) {
   const own = ownPieces(itemIds, borrowed)
   if (!own.length) return
-  queuePhoto('entry', own, entryId).catch(() => { /* table not pasted yet, or offline: the avatar covers it */ })
+  photoAllowed()
+    .then((ok) => (ok ? queuePhoto('entry', own, entryId) : undefined))
+    .catch(() => { /* table not pasted yet, or offline: the avatar covers it */ })
 }
 
 /** The pieces of a runway look that can go in its photo: hers, not the borrowed ones. */

@@ -100,9 +100,42 @@ reset role;
 
 -- v8 photo-real jobs, while the round is still open.
 select set_config('smoke.eb0', (select id::text from entries where round_id = current_setting('smoke.r')::uuid and user_id = '00000000-0000-0000-0000-00000000000b'), false);
+-- Photos are off for every child until her parent says yes; only the service role writes that down.
+-- a's parent said yes; b's was never asked.
+insert into photoreal_children (user_id, approved_by) values ('00000000-0000-0000-0000-00000000000a', 'smoke: a''s parent') on conflict do nothing;
+select pg_temp.act_as('b');
+set role authenticated;
+do $$ begin
+  begin
+    insert into photo_jobs (kind, item_ids) values ('dressme', '{10000000-0000-0000-0000-00000000000b}');
+    raise exception 'v8: a Dress me photo for a child with no parent''s yes was accepted';
+  exception when raise_exception then
+    if sqlerrm not like 'Photos are not switched on for you yet%' then raise; end if;
+  end;
+  begin
+    insert into photo_jobs (kind, entry_id, item_ids) values ('entry', current_setting('smoke.eb0')::uuid, '{10000000-0000-0000-0000-00000000000b}');
+    raise exception 'v8: a runway photo for a child with no parent''s yes was accepted';
+  exception when raise_exception then
+    if sqlerrm not like 'Photos are not switched on for you yet%' then raise; end if;
+  end;
+  begin
+    insert into photoreal_children (user_id, approved_by) values (auth.uid(), 'me');
+    raise exception 'v8: a child switched photos on for herself';
+  exception when insufficient_privilege then null;
+  end;
+  assert (select count(*) from photoreal_children) = 0, 'v8: b cannot see who else has photos on';
+  assert (select count(*) from photo_jobs) = 0, 'v8: b has no photo jobs';
+end $$;
+reset role;
 select pg_temp.act_as('a');
 set role authenticated;
 do $$ declare j1 uuid; j2 uuid; je uuid; ea uuid; r uuid := current_setting('smoke.r')::uuid; begin
+  assert (select count(*) from photoreal_children) = 1, 'v8: a reads her own parent''s yes';
+  begin
+    delete from photoreal_children where user_id = auth.uid();
+    raise exception 'v8: a child removed her own consent row';
+  exception when insufficient_privilege then null;
+  end;
   -- a phone that sends worker fields gets them overwritten
   insert into photo_jobs (kind, item_ids, status, result_path, attempts, worker, error, user_id)
     values ('dressme', '{10000000-0000-0000-0000-00000000000a}', 'done', 'x/forged.jpg', 9, 'phone', 'none', '00000000-0000-0000-0000-00000000000b')
@@ -331,6 +364,29 @@ end $$;
 reset role;
 update entries set outfit = '{"items":["10000000-0000-0000-0000-00000000000a","10000000-0000-0000-0000-0000000000a2"],"borrowed":[]}'
   where id = current_setting('smoke.ea')::uuid;
+
+-- Her parent takes the yes back: no new photos, and her runway photo comes down for the squad at once.
+delete from photoreal_children where user_id = '00000000-0000-0000-0000-00000000000a';
+select pg_temp.act_as('b');
+set role authenticated;
+do $$ declare r uuid := current_setting('smoke.r')::uuid; begin
+  assert (select photo_path from round_entry_cards_v2(r) where user_id = '00000000-0000-0000-0000-00000000000a') is null, 'v8: yes withdrawn: her runway photo is down';
+  assert not can_see_photo(current_setting('smoke.jpath4')), 'v8: yes withdrawn: b cannot open it';
+  assert (select count(*) from photo_jobs) = 0, 'v8: yes withdrawn: b sees none of her jobs';
+end $$;
+reset role;
+select pg_temp.act_as('a');
+set role authenticated;
+do $$ begin
+  begin
+    insert into photo_jobs (kind, item_ids) values ('dressme', '{10000000-0000-0000-0000-00000000000a}');
+    raise exception 'v8: a photo after the yes was withdrawn was accepted';
+  exception when raise_exception then
+    if sqlerrm not like 'Photos are not switched on for you yet%' then raise; end if;
+  end;
+end $$;
+reset role;
+insert into photoreal_children (user_id, approved_by) values ('00000000-0000-0000-0000-00000000000a', 'smoke: a''s parent') on conflict do nothing;
 
 -- Votes. a: self-vote must be rejected by RLS, vote on b's look allowed.
 select pg_temp.act_as('a');

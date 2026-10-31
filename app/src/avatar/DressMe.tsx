@@ -2,7 +2,7 @@ import { useLiveQuery } from 'dexie-react-hooks'
 import { useMemo, useState } from 'react'
 import { db } from '../db'
 import { presetsToLook } from '../lib/avatarSync'
-import { coversLook, queuePhoto, usePhotoUrl, useMyPhotoJobs, useStudio } from '../lib/photos'
+import { coversLook, queuePhoto, usePhotoAllowed, usePhotoUrl, useMyPhotoJobs, useStudio } from '../lib/photos'
 import { useObjectUrl } from '../lib/useObjectUrl'
 import {
   garmentOf, OUTFIT_SLOTS, SLOT_CATEGORY, SLOT_LABEL, slotOf, type Item, type Outfit, type OutfitSlot,
@@ -31,6 +31,8 @@ export default function DressMe({ onClose }: { onClose: () => void }) {
   const [ready, setReady] = useState(false)
   const [failed, setFailed] = useState(false)
   // Photo-real (BRIEF-v4): ask the studio Mac for a photo of her in this look; it lands here a minute or two later.
+  // Only once a parent has switched it on for her (photoreal_children): until then no button, no chip, no photo.
+  const allowed = usePhotoAllowed()
   const photos = useMyPhotoJobs('dressme')
   const { online } = useStudio()
   const [asking, setAsking] = useState(false)
@@ -62,13 +64,13 @@ export default function DressMe({ onClose }: { onClose: () => void }) {
   const inSlot = items.filter((i) => i.category === SLOT_CATEGORY[slot])
   const wornItems = OUTFIT_SLOTS.map((s) => ({ slot: s, item: worn[s] ? byId.get(worn[s]!) : undefined })).filter((x) => x.item)
   const wornIds = wornItems.map((w) => w.item!.id)
-  const job = photos.latest
+  const job = allowed ? photos.latest : undefined
   const photoUrl = usePhotoUrl(job?.status === 'done' ? job.result_path : null)
   const showPhoto = !!photoUrl && (view && view.job === job?.id ? view.photo : true)
   const earlier = !!job && wornIds.length > 0 && !coversLook(job, wornIds)
 
   async function askForPhoto() {
-    if (!wornIds.length || asking) return
+    if (!allowed || !wornIds.length || asking) return
     setAsking(true); setPhotoErr(undefined)
     try { photos.add(await queuePhoto('dressme', wornIds)) } catch (x) { setPhotoErr((x as Error).message) } finally { setAsking(false) }
   }
@@ -107,9 +109,11 @@ export default function DressMe({ onClose }: { onClose: () => void }) {
         <div className="absolute bottom-2 left-2 z-20 flex max-w-[70%] flex-col items-start gap-1">
           <PhotoChip job={job} online={online} note={earlier ? 'earlier look' : undefined} />
           {photoErr && <p className="rounded-lg bg-white/90 px-2 py-1 text-[11px] font-semibold text-poppy">{photoErr}</p>}
-          <button onClick={askForPhoto} disabled={!wornIds.length || asking} className="rounded-full bg-poppy px-3 py-1.5 text-xs font-bold text-white shadow-md shadow-poppy/30 disabled:opacity-40" data-testid="photo-button">
-            {asking ? '…' : '📸 Photo'}
-          </button>
+          {allowed && (
+            <button onClick={askForPhoto} disabled={!wornIds.length || asking} className="rounded-full bg-poppy px-3 py-1.5 text-xs font-bold text-white shadow-md shadow-poppy/30 disabled:opacity-40" data-testid="photo-button">
+              {asking ? '…' : '📸 Photo'}
+            </button>
+          )}
         </div>
         {/* the real pieces, as cards beside her */}
         <div className="absolute top-2 right-2 z-20 flex flex-col gap-1.5">

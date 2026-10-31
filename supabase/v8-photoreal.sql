@@ -29,9 +29,25 @@
 -- 5. Check: `select * from studio_status;` shows one row a minute after
 --    the worker starts. Until then the app says "Studio is offline, your
 --    photo will arrive later." and jobs wait in the queue.
+-- 6. Photos are OFF for every child until her parent says yes. Poppy,
+--    once: find her id with `select id, email from auth.users;`, then
+--        insert into photoreal_children (user_id, approved_by)
+--        values ('<her id>', 'David, her dad') on conflict do nothing;
+--    A friend gets a row only after her own parent has said yes and sent
+--    a reference photo (BRIEF-v4). Until then she sees no Photo button
+--    and her looks walk in as the avatar. To switch a child off again:
+--        delete from photoreal_children where user_id = '<her id>';
+--    No new photos from then on, and her runway photos come down for the
+--    squad straight away.
 -- =====================================================================
 --
 -- The contract with the studio worker (~/Projects/poppy-photoreal):
+--   photoreal_children  one row per child whose parent said yes. Only
+--                  the service role writes it. No row: the app shows no
+--                  Photo button and no chips and queues nothing, the
+--                  insert trigger refuses her jobs, the squad sees none
+--                  of her photos, and the worker checks the same row
+--                  before it renders.
 --   photo_jobs     one row per requested photo. The app inserts kind,
 --                  entry_id, item_ids (round_id is copied from the entry);
 --                  item_ids are always the player's own pieces, for both
@@ -53,6 +69,22 @@
 --                  readable, not even by you); a squad mate reads a
 --                  runway photo once that round's reveal has started.
 --                  Nobody but the worker writes.
+
+-- Consent ------------------------------------------------------------------
+-- A parent's yes, one row per child (BRIEF-v4: friends get photos only
+-- once their own parent sends a reference photo the same way). Only the
+-- service role writes here: the SQL Editor, or the studio side. A player
+-- reads her own row, which is how the app knows to show the Photo button.
+create table if not exists photoreal_children (
+  user_id uuid primary key references auth.users(id) on delete cascade,
+  approved_by text not null,
+  approved_at timestamptz not null default now()
+);
+alter table photoreal_children enable row level security;
+drop policy if exists "see your own photo consent" on photoreal_children;
+create policy "see your own photo consent" on photoreal_children for select
+  using (user_id = auth.uid());
+revoke insert, update, delete on photoreal_children from anon, authenticated;
 
 -- Jobs -------------------------------------------------------------------
 create table if not exists photo_jobs (
@@ -85,6 +117,10 @@ create or replace function photo_jobs_before_insert() returns trigger
 language plpgsql security definer set search_path = public as $$
 begin
   new.user_id := coalesce(auth.uid(), new.user_id); -- the worker (no auth.uid()) never inserts, but keep it sane
+  -- no parent's yes, no photo (the app hides the button; this is the lock)
+  if not exists (select 1 from photoreal_children c where c.user_id = new.user_id) then
+    raise exception 'Photos are not switched on for you yet';
+  end if;
   new.status := 'queued';
   new.attempts := 0;
   new.result_path := null;
@@ -146,7 +182,8 @@ create trigger photo_jobs_supersede after insert on photo_jobs
 -- there are more; borrowed pieces never go in the photo). A render of a
 -- look she has since changed never stands in for the current one, whether
 -- the newer job is still waiting, failed, was rejected, or was never
--- queued at all (an offline phone, an old build). The runway cards, the
+-- queued at all (an offline phone, an old build). Nothing at all once her
+-- parent's yes is withdrawn (photoreal_children). The runway cards, the
 -- squad's read of photo_jobs and the squad's read of the bucket all go
 -- through this one rule.
 create or replace function entry_photo_job(e uuid) returns uuid
@@ -159,6 +196,7 @@ language sql stable security definer set search_path = public as $$
     join items i on i.id::text = x.id and i.user_id = en.user_id) look
   join photo_jobs j on j.entry_id = en.id
   where en.id = e and j.kind = 'entry' and j.status = 'done'
+    and exists (select 1 from photoreal_children c where c.user_id = en.user_id)
     and j.item_ids <@ look.ids
     and cardinality(j.item_ids) = least(6, cardinality(look.ids))
   order by j.created_at desc, j.id desc
