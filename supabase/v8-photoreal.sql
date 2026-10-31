@@ -42,9 +42,11 @@
 --   studio_status  one row (id 1), the worker's heartbeat. Older than 10
 --                  minutes, or missing, means the studio is offline.
 --   entries.photo_job_id  set by the worker when an entry job is done.
---   photoreal      private bucket. You read your own photos; a squad
---                  mate reads a runway photo once that round's reveal
---                  has started. Nobody but the worker writes.
+--   photoreal      private bucket. You read your own photos once they
+--                  are done (a render waiting for parent review is not
+--                  readable, not even by you); a squad mate reads a
+--                  runway photo once that round's reveal has started.
+--                  Nobody but the worker writes.
 
 -- Jobs -------------------------------------------------------------------
 create table if not exists photo_jobs (
@@ -171,9 +173,21 @@ language sql stable security definer set search_path = public as $$
       and j.round_id is not null and round_revealed(j.round_id))
 $$;
 
+-- Can the signed-in player open her own rendered photo? Only once it is
+-- done. Her job row (and its Realtime feed) carries result_path from the
+-- moment the worker uploads the render for parent review, so the bucket
+-- itself has to say no until the parent says yes. The localhost review
+-- page signs with the service key, which skips this.
+create or replace function own_photo_ready(name text) returns boolean
+language sql stable security definer set search_path = public as $$
+  select exists (select 1 from photo_jobs j
+    where j.result_path = name and j.user_id = auth.uid() and j.status = 'done')
+$$;
+
 drop policy if exists "own photoreal photos" on storage.objects;
 create policy "own photoreal photos" on storage.objects for select
-  using (bucket_id = 'photoreal' and (storage.foldername(name))[1] = auth.uid()::text);
+  using (bucket_id = 'photoreal' and (storage.foldername(name))[1] = auth.uid()::text
+         and own_photo_ready(name));
 drop policy if exists "squad sees revealed photoreal photos" on storage.objects;
 create policy "squad sees revealed photoreal photos" on storage.objects for select
   using (bucket_id = 'photoreal' and can_see_photo(name));

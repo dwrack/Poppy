@@ -23,10 +23,12 @@ trick in AVATAR-STEP2.md).
   older queued ones ("superseded"). Phones cannot update or delete jobs.
 - `studio_status`: the worker's heartbeat row. Read-only to phones.
 - `entries.photo_job_id`: set by the worker when an entry photo is done.
-- `photoreal` bucket, private. You read your own folder; a squad mate
-  reads a runway photo (`can_see_photo`) once that round's reveal has
-  started. Dress me photos are never visible to anyone else. No phone
-  can write to the bucket.
+- `photoreal` bucket, private. You read your own photos once they are
+  done (`own_photo_ready`): a render waiting for parent review is not
+  readable, not even by her, although her job row already names it. A
+  squad mate reads a runway photo (`can_see_photo`) once that round's
+  reveal has started. Dress me photos are never visible to anyone else.
+  No phone can write to the bucket.
 - `round_entry_cards_v2()`: same columns; `photo_path` is now the newest
   photo job for that entry if it is done (an older finished photo would
   show a look she has since changed). `entries.photo_path` (set by

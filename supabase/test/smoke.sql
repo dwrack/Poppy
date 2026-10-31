@@ -163,14 +163,27 @@ do $$ declare j1 uuid; j2 uuid; je uuid; ea uuid; r uuid := current_setting('smo
 end $$;
 reset role;
 
--- The worker (service role) finishes both photos and uploads them.
-update photo_jobs set status = 'done', result_path = user_id::text || '/' || id::text || '.jpg', finished_at = now(), worker = 'smoke'
+-- The worker (service role) renders both photos and uploads them; they wait for parent review.
+update photo_jobs set status = 'review', result_path = user_id::text || '/' || id::text || '.jpg', finished_at = now(), worker = 'smoke'
   where id in (current_setting('smoke.je')::uuid, current_setting('smoke.j2')::uuid);
-update entries set photo_job_id = current_setting('smoke.je')::uuid where id = (select entry_id from photo_jobs where id = current_setting('smoke.je')::uuid);
 insert into storage.objects (bucket_id, name) select 'photoreal', result_path from photo_jobs where id in (current_setting('smoke.je')::uuid, current_setting('smoke.j2')::uuid);
 select set_config('smoke.jpath', (select result_path from photo_jobs where id = current_setting('smoke.je')::uuid), false);
 select set_config('smoke.dpath', (select result_path from photo_jobs where id = current_setting('smoke.j2')::uuid), false);
 do $$ begin assert (select public from storage.buckets where id = 'photoreal') = false, 'v8: photoreal bucket is private'; end $$;
+
+-- In review her own job row already carries the path; the bucket still says no until the parent says yes.
+select pg_temp.act_as('a');
+set role authenticated;
+do $$ begin
+  assert (select result_path from photo_jobs where id = current_setting('smoke.je')::uuid) = current_setting('smoke.jpath'), 'v8: in review, her job row carries the path';
+  assert not own_photo_ready(current_setting('smoke.jpath')), 'v8: in review, own_photo_ready says no';
+  assert (select count(*) from storage.objects where bucket_id = 'photoreal') = 0, 'v8: in review, not even she can open her renders';
+end $$;
+reset role;
+
+-- The parent approves both.
+update photo_jobs set status = 'done' where id in (current_setting('smoke.je')::uuid, current_setting('smoke.j2')::uuid);
+update entries set photo_job_id = current_setting('smoke.je')::uuid where id = (select entry_id from photo_jobs where id = current_setting('smoke.je')::uuid);
 
 -- Before the reveal a squad mate sees none of it; the owner sees her own.
 select pg_temp.act_as('b');
