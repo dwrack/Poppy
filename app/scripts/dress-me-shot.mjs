@@ -38,8 +38,28 @@ const browser = await chromium.launch({
 const ctx = await browser.newContext({ viewport: { width: 390, height: 844 }, deviceScaleFactor: 2, isMobile: true, hasTouch: true })
 await ctx.addInitScript(([k, v]) => localStorage.setItem(k, v), ['sb-yrcddfehjjbtzwuotmym-auth-token', JSON.stringify(session)])
 // Nothing leaves the machine: auth/v1/user answers with no id, so sync stays idle; everything else is an empty list.
+// photo_jobs remembers what the Photo button queued; studio_status stays empty, so the studio reads as offline.
+const jobs = []
 await ctx.route(/supabase\.co\//, (route) => {
-  const u = route.request().url()
+  const req = route.request(), u = req.url()
+  if (u.includes('/rest/v1/photo_jobs')) {
+    if (req.method() === 'POST') {
+      const body = req.postDataJSON()
+      const job = { id: `job-${jobs.length + 1}`, user_id: USER, kind: body.kind, entry_id: null, round_id: null, item_ids: body.item_ids, status: 'queued', result_path: null, error: null, created_at: new Date().toISOString(), finished_at: null }
+      for (const j of jobs) if (j.status === 'queued') Object.assign(j, { status: 'rejected', error: 'superseded' })
+      jobs.unshift(job)
+      return route.fulfill({ status: 201, contentType: 'application/json', body: JSON.stringify(job) })
+    }
+    return route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(jobs) })
+  }
+  // the finished photo: a signed link, then a tiny peach PNG
+  if (u.includes('/storage/v1/object/sign/photoreal/')) {
+    return route.fulfill({ status: 200, contentType: 'image/png', body: Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8+P9/PQAJYwPMXnBWpwAAAABJRU5ErkJggg==', 'base64') })
+  }
+  if (u.includes('/storage/v1/object/sign/photoreal')) {
+    const paths = req.postDataJSON()?.paths ?? []
+    return route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(paths.map((path) => ({ path, signedURL: `/object/sign/photoreal/${path}?token=x` }))) })
+  }
   route.fulfill({ status: 200, contentType: 'application/json', body: u.includes('/auth/v1/user') ? '{}' : '[]' })
 })
 
@@ -103,6 +123,25 @@ try {
   }
   await wear('Top'); await wear('Bottom'); await wear('Shoes'); await wear('Jacket')
   await page.waitForTimeout(800)
+
+  // Photo: queue a photo-real render of this look; with no studio heartbeat the chip says so, in the exact words
+  await page.getByTestId('photo-button').click()
+  const chip = page.getByTestId('photo-chip')
+  await chip.waitFor({ timeout: 10000 })
+  if ((await chip.getAttribute('data-status')) !== 'offline') throw new Error('photo chip should read studio offline')
+  if (!(await chip.innerText()).includes('Studio is offline, your photo will arrive later.')) throw new Error('offline copy missing')
+  if (jobs.length !== 1 || jobs[0].kind !== 'dressme' || jobs[0].item_ids.length !== 4) throw new Error('photo job not queued with the four worn pieces')
+  await page.screenshot({ path: resolve(app, 'screenshots/dress-me-photo-queued.png') })
+  // the studio finishes it: the photo replaces her, with a 3D / Photo toggle
+  Object.assign(jobs[0], { status: 'done', result_path: `${USER}/job-1.jpg`, finished_at: new Date().toISOString() })
+  await page.evaluate(() => window.dispatchEvent(new Event('focus')))
+  await view.getByTestId('photo-real').waitFor({ timeout: 10000 })
+  if ((await chip.getAttribute('data-status')) !== 'done') throw new Error('photo chip should read ready')
+  await view.getByTestId('photo-toggle').getByRole('button', { name: /3D/ }).click()
+  await view.getByTestId('photo-real').waitFor({ state: 'detached', timeout: 5000 })
+  await view.getByTestId('photo-toggle').getByRole('button', { name: /Photo/ }).click()
+  await view.getByTestId('photo-real').waitFor({ timeout: 5000 })
+  await view.getByTestId('photo-toggle').getByRole('button', { name: /3D/ }).click()
   mkdirSync(resolve(app, 'screenshots'), { recursive: true })
   await page.screenshot({ path: resolve(app, 'screenshots/dress-me.png') })
 
@@ -152,7 +191,7 @@ try {
   await page.waitForTimeout(2500)
   if (extraDir) await page.screenshot({ path: resolve(extraDir, 'you-tab.png') })
 
-  console.log(`dress-me: canvas ok, webgl ok, you-tab preview ok, console errors: ${errors.length}`)
+  console.log(`dress-me: canvas ok, webgl ok, photo queued + offline chip + ready toggle ok, you-tab preview ok, console errors: ${errors.length}`)
   for (const e of errors) console.log('  ' + e)
   if (errors.length) process.exitCode = 1
 } catch (e) {

@@ -48,7 +48,8 @@ const cards = [
   { entry_id: 'e1', user_id: USER, display_name: 'Poppy', emoji: '🌸', outfit: { items: ['p1', 'p2', 'p3'] }, photo_path: null, submitted_at: at(-5 * h),
     pieces: [piece('p1', 'Pink stripe tee', 'top', ['pink', 'white'], 'stripe'), piece('p2', 'Denim skirt', 'bottom', ['denim'], 'solid'), piece('p3', 'White sneakers', 'shoes', ['white'], 'solid')],
     styled_by: null, avatar: { face: 'sunny', skin: 'light', hair: 'ponytail', hair_colour: 'auburn', eyes: 'green' } },
-  { entry_id: 'e2', user_id: F1, display_name: 'Maya', emoji: '🦋', outfit: { items: ['p4', 'p5'] }, photo_path: null, submitted_at: at(-4 * h),
+  // Maya's look has a photo-real render (v8: photo_path is the done photo job's result, in the photoreal bucket)
+  { entry_id: 'e2', user_id: F1, display_name: 'Maya', emoji: '🦋', outfit: { items: ['p4', 'p5'] }, photo_path: `${F1}/job-e2.jpg`, submitted_at: at(-4 * h),
     pieces: [piece('p4', 'Floral dress', 'dress', ['navy', 'yellow'], 'floral', [F1, 'Maya']), piece('p5', 'Green jacket', 'outerwear', ['green'], 'solid')], // jacket borrowed from Poppy
     styled_by: null, avatar: { face: 'chill', skin: 'deep', hair: 'buns', hair_colour: 'black', eyes: 'brown' } },
   { entry_id: 'e3', user_id: F2, display_name: 'Zoe', emoji: '🍒', outfit: { items: ['p6', 'p7', 'p8'] }, photo_path: null, submitted_at: at(-3 * h),
@@ -86,6 +87,17 @@ const pngs = await scratch.evaluate(() => {
     p1: draw((g) => shirt(g, '#f08cb8')), p2: draw((g) => skirt(g, '#4a6fa0')), p3: draw((g) => shoe(g, '#f6f4f0')),
     p4: draw((g) => skirt(g, '#22304f')), p5: draw((g) => jacket(g, '#3d8a4f')),
     p6: draw((g) => shirt(g, '#c0392b')), p7: draw((g) => pants(g, '#222')), p8: draw((g) => shoe(g, '#e9c46a')),
+    // a stand-in "photo": wall, floor, a girl-shaped silhouette in a navy dress and green jacket
+    photo: (() => {
+      const c = document.createElement('canvas'); c.width = 600; c.height = 800
+      const g = c.getContext('2d')
+      g.fillStyle = '#efe6da'; g.fillRect(0, 0, 600, 800); g.fillStyle = '#c9b79c'; g.fillRect(0, 620, 600, 180)
+      g.fillStyle = '#8d5a3b'; g.beginPath(); g.arc(300, 170, 60, 0, Math.PI * 2); g.fill()
+      g.fillStyle = '#3d8a4f'; g.fillRect(220, 240, 160, 170)
+      g.fillStyle = '#22304f'; g.beginPath(); g.moveTo(250, 400); g.lineTo(350, 400); g.lineTo(400, 600); g.lineTo(200, 600); g.closePath(); g.fill()
+      g.fillStyle = '#8d5a3b'; g.fillRect(255, 600, 25, 60); g.fillRect(320, 600, 25, 60)
+      return c.toDataURL('image/png').split(',')[1]
+    })(),
   }
 })
 await scratch.close()
@@ -98,6 +110,11 @@ await ctx.route(/supabase\.co\//, (route) => {
   if (p.includes('/storage/v1/object/sign/closet/')) {
     const id = p.split('/').pop().replace('.png', '')
     return route.fulfill({ status: 200, contentType: 'image/png', body: Buffer.from(pngs[id] ?? pngs.p1, 'base64') })
+  }
+  if (p.includes('/storage/v1/object/sign/photoreal/')) return route.fulfill({ status: 200, contentType: 'image/png', body: Buffer.from(pngs.photo, 'base64') })
+  if (p.includes('/storage/v1/object/sign/photoreal')) {
+    const paths = route.request().postDataJSON()?.paths ?? []
+    return json(route, paths.map((path) => ({ path, signedURL: `/object/sign/photoreal/${path}?token=x` })))
   }
   if (p.includes('/storage/v1/object/sign/closet')) {
     const paths = route.request().postDataJSON()?.paths ?? []
@@ -160,16 +177,29 @@ try {
   await page.getByRole('button', { name: /Runway$/ }).click()
   await page.getByText('Last round').waitFor({ timeout: 15000 })
   await stage.waitFor({ timeout: 90000 })
-  await page.waitForTimeout(3400) // one twirl on arrival, then the hold
+  // the winner (Maya) has a photo-real render: it is the picture, she stays loaded behind it
+  const photo = page.locator('[data-testid=avatar-stage] [data-testid=photo-real]')
+  await photo.waitFor({ timeout: 10000 })
+  await page.waitForTimeout(1200)
   await page.screenshot({ path: resolve(shots, 'podium.png') })
   if ((await canvases()) !== 1) throw new Error('expected one canvas on the podium')
+  // tap to flip to her in 3D, and back
+  await page.getByTestId('photo-flip').click()
+  await photo.waitFor({ state: 'detached', timeout: 5000 })
+  await page.waitForTimeout(3400) // one twirl on arrival, then the hold
+  await page.screenshot({ path: resolve(shots, 'podium-3d.png') })
+  await page.getByTestId('photo-flip').click()
+  await photo.waitFor({ timeout: 5000 })
+  if ((await page.locator('[data-testid=look-photo]').count()) < 1) throw new Error('podium card should show the photo thumbnail')
   // tap third place: she swaps in and twirls
   await page.getByRole('button', { name: 'Show Zoe on the podium' }).click()
   await page.waitForTimeout(600)
   if (extraDir) await page.screenshot({ path: resolve(extraDir, 'podium-third-twirl.png') })
   if ((await canvases()) !== 1) throw new Error('canvas count changed on the podium')
 
-  console.log(`runway: reveal ok, next look ok, podium ok, one canvas throughout, console errors: ${errors.length}`)
+  if ((await photo.count()) !== 0) throw new Error('Zoe has no photo: the stage should show her avatar')
+
+  console.log(`runway: reveal ok, next look ok, podium photo + flip ok, one canvas throughout, console errors: ${errors.length}`)
   for (const e of errors) console.log('  ' + e)
   if (errors.length) process.exitCode = 1
 } catch (e) {
