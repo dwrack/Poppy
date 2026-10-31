@@ -209,7 +209,7 @@ create policy "edit own entry while open" on entries for update
 -- Stars ------------------------------------------------------------------
 alter table stars_ledger drop constraint if exists stars_ledger_reason_check;
 alter table stars_ledger add constraint stars_ledger_reason_check
-  check (reason in ('votes','voted','finished','lent','wore','lent_it','styled_win'));
+  check (reason in ('votes','voted','finished','lent','wore','wore_it','lent_it','styled_win'));
 
 -- Close a round: status done, and pay out stars. Same as v3 plus:
 --   lent_it:    1 per piece of yours in someone else's submitted look

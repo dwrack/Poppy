@@ -100,7 +100,9 @@ export function countdown(ms: number) {
 }
 
 /** A round with its theme's pack joined in (rounds.theme_id -> themes.pack_id -> theme_packs). */
-const ROUND_SELECT = '*, themes(theme_packs(id, name, lobby_colour, confetti_colour))'
+// `themes!theme_id`: after v5 rounds has three FKs to themes (theme_id, theme_pick_id, theme_veto_id),
+// so PostgREST needs told which one the pack hangs off.
+const ROUND_SELECT = '*, themes!theme_id(theme_packs(id, name, lobby_colour, confetti_colour))'
 type RoundRow = Omit<Round, 'pack'> & { themes?: { theme_packs: ThemePack | null } | null }
 function toRound(row: RoundRow): Round {
   const { themes, ...rest } = row

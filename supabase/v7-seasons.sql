@@ -1,8 +1,21 @@
 -- Poppyseed Runway, seasons: theme packs, a 12-round season counter,
--- season badges and an end-of-season summary. Adds to v3-game.sql. Safe
--- to run more than once. Nothing in version 1, the friends tables or the
--- step 1 game tables is dropped; rounds gains two nullable columns
--- (season_no, round_no) and themes gains one (pack_id).
+-- season badges and an end-of-season summary. Adds to v3-game.sql,
+-- v5-game-loop.sql and v6-borrow-style.sql. Safe to run more than once.
+-- Nothing in version 1, the friends tables or the step 1 game tables is
+-- dropped; rounds gains two nullable columns (season_no, round_no) and
+-- themes gains one (pack_id).
+--
+-- THIS FILE IS THE SUPERSET. It is the last one pasted, and it redefines
+-- finish_round() and advance_rounds(), so those two carry everything the
+-- earlier files added:
+--   advance_rounds  v5 theme prop (winner's pick, else the pool minus her
+--                   veto, picked_by stamped) + v7 pack-aware pick and
+--                   season/round numbering.
+--   finish_round    v3 votes/finished/voted stars + v6 lent_it and
+--                   styled_win stars + v7 season badges after round 12.
+--   stars_ledger    reason check is the union of every file's reasons.
+--   Best Lender     counts 'lent' (v3 placeholder) and 'lent_it' (v6).
+-- Paste order: v3, v4, v5, v6, v7 (see V3-PASTE-ORDER.md at the repo root).
 --
 -- =====================================================================
 -- HOW TO TURN IT ON (David, about 2 minutes, in the Supabase dashboard
@@ -142,16 +155,26 @@ language sql stable security definer set search_path = public as $$
   limit 1
 $$;
 
--- Least-recently-used theme from the pack in season on day d, else from Everyday.
+-- Least-recently-used theme from the pack in season on day d, else from
+-- Everyday. `veto` (v5 theme prop: last round's winner said "not this one")
+-- is skipped.
 drop function if exists pick_theme();
-create or replace function pick_theme(d date default current_date) returns themes
+drop function if exists pick_theme(date);
+create or replace function pick_theme(d date default current_date, veto uuid default null) returns themes
 language sql stable security definer set search_path = public as $$
   select t.* from themes t
   join theme_packs p on p.id = t.pack_id
+  where t.id is distinct from veto
   order by pack_active_on(p.starts_on, p.ends_on, d) desc, (p.name = 'Everyday') desc,
            t.used_at asc nulls first, random()
   limit 1
 $$;
+
+-- Ledger reasons: the union of v3, v5 and v6 (each earlier file rewrote
+-- this list on its own, so the last file pins the full set).
+alter table stars_ledger drop constraint if exists stars_ledger_reason_check;
+alter table stars_ledger add constraint stars_ledger_reason_check
+  check (reason in ('votes','voted','finished','lent','wore','wore_it','lent_it','styled_win'));
 
 -- Season counter --------------------------------------------------------------
 alter table rounds add column if not exists season_no int;
@@ -215,8 +238,8 @@ $$;
 --   Most Improved          biggest gain over the previous season (season 2+,
 --                          only members who entered a round last season)
 --   Never Missed a Round   a look in every one of the 12 rounds
---   Best Lender            most 'lent' stars; placeholder until borrowing
---                          pays into the ledger, so it never fires yet
+--   Best Lender            most lending stars ('lent' from v3 and 'lent_it'
+--                          from v6, which pays 1 per piece worn by a friend)
 create or replace function award_season_badges(g uuid, s int) returns void
 language plpgsql security definer set search_path = public as $$
 declare top int; best_gain int; most_lent int;
@@ -265,22 +288,24 @@ begin
 
   select max(x.n) into most_lent from (
     select l.user_id, sum(l.amount) as n from stars_ledger l join rounds r on r.id = l.round_id
-    where l.reason = 'lent' and r.group_id = g and r.season_no = s group by l.user_id) x;
+    where l.reason in ('lent','lent_it') and r.group_id = g and r.season_no = s group by l.user_id) x;
   if most_lent > 0 then
     insert into season_badges (user_id, group_id, season_no, badge)
       select x.user_id, g, s, 'Best Lender' from (
         select l.user_id, sum(l.amount) as n from stars_ledger l join rounds r on r.id = l.round_id
-        where l.reason = 'lent' and r.group_id = g and r.season_no = s group by l.user_id) x
+        where l.reason in ('lent','lent_it') and r.group_id = g and r.season_no = s group by l.user_id) x
       where x.n = most_lent
     on conflict do nothing;
   end if;
 end $$;
 revoke execute on function award_season_badges(uuid, int) from public, anon, authenticated;
 
--- finish_round: same payout as step 1, plus season badges after round 12.
+-- finish_round: the v3 payout, plus v6's lent_it and styled_win, plus
+-- season badges after round 12. Superset of v3 and v6; do not paste an
+-- older finish_round after this one.
 create or replace function finish_round(r uuid) returns void
 language plpgsql security definer set search_path = public as $$
-declare ro rounds;
+declare ro rounds; top int;
 begin
   update rounds set status = 'done' where id = r and status <> 'done';
 
@@ -305,6 +330,33 @@ begin
         where e.round_id = r and e.user_id <> m.user_id and v.id is null)
   on conflict do nothing;
 
+  -- v6 Lent it: pieces that are in a submitted look but belong to someone else.
+  insert into stars_ledger (user_id, round_id, reason, amount)
+    select i.user_id, r, 'lent_it', count(*)::int
+    from entries e
+    join jsonb_array_elements_text(coalesce(e.outfit->'items', '[]'::jsonb)) x(id) on true
+    join items i on i.id::text = x.id
+    where e.round_id = r and i.user_id <> e.user_id
+    group by i.user_id
+  on conflict do nothing;
+
+  -- v6 Styled win: the stylist of a first-place look shares the credit
+  -- (half the winning look's stars, rounded up).
+  select max(t.total) into top from (
+    select coalesce(sum(v.stars), 0) as total from entries e
+    left join votes v on v.entry_id = e.id where e.round_id = r group by e.id) t;
+  if coalesce(top, 0) > 0 then
+    insert into stars_ledger (user_id, round_id, reason, amount)
+      select s.from_user, r, 'styled_win', ceil(t.total / 2.0)::int
+      from entries e
+      join styled_looks s on s.id = e.styled_look_id
+      join (select e2.id, coalesce(sum(v.stars), 0) as total from entries e2
+            left join votes v on v.entry_id = e2.id where e2.round_id = r group by e2.id) t on t.id = e.id
+      where e.round_id = r and t.total = top
+    on conflict do nothing;
+  end if;
+
+  -- v7 Season badges once round 12 is in.
   select * into ro from rounds where id = r;
   if ro.round_no = 12 then perform award_season_badges(ro.group_id, ro.season_no); end if;
 end $$;
@@ -313,9 +365,11 @@ end $$;
 revoke execute on function finish_round(uuid) from public, anon, authenticated;
 revoke execute on function create_round(uuid, timestamptz) from public, anon, authenticated;
 
--- advance_rounds: same clock as step 1; the theme now comes from the pack
--- in season (on the squad's local date), and every round is stamped with its season and round number
--- as it opens.
+-- advance_rounds: same clock as step 1. At the drop the theme is the v5
+-- theme prop first (last round's winner's pick, picked_by stamped), else
+-- the least-used theme from the pack in season on the squad's local date,
+-- skipping her veto. Every round is stamped with its season and round
+-- number as it opens. Superset of v3, v5 and v7.
 create or replace function advance_rounds() returns void
 language plpgsql security definer set search_path = public as $$
 declare g record; r record; t themes; n int;
@@ -329,12 +383,20 @@ begin
 
   -- The pack is judged on the squad's local date, not UTC, so Halloween
   -- doesn't end at 7pm Chicago on Oct 31.
-  for r in select x.id, x.group_id, coalesce(gr.tz, 'America/Chicago') as tz
+  for r in select x.id, x.group_id, x.theme_pick_id, x.theme_veto_id, x.theme_pick_by,
+                  coalesce(gr.tz, 'America/Chicago') as tz
            from rounds x join groups gr on gr.id = x.group_id
            where x.status = 'upcoming' and x.opens_at <= now() order by x.opens_at loop
-    t := pick_theme((now() at time zone r.tz)::date);
+    t := null;
+    if r.theme_pick_id is not null then
+      select * into t from themes where id = r.theme_pick_id;
+    end if;
+    if t.id is null then
+      t := pick_theme((now() at time zone r.tz)::date, r.theme_veto_id);
+    end if;
     select count(*) into n from rounds x where x.group_id = r.group_id and x.status <> 'upcoming' and x.id <> r.id;
     update rounds set status = 'open', theme_id = coalesce(theme_id, t.id), theme = coalesce(theme, t.text),
+                      picked_by = case when r.theme_pick_id is not null and r.theme_pick_id = t.id then r.theme_pick_by else picked_by end,
                       season_no = coalesce(season_no, n / 12 + 1), round_no = coalesce(round_no, n % 12 + 1)
       where id = r.id;
     update themes set used_at = now() where id = t.id;
