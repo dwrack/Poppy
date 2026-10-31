@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from 'react'
-import { supabase } from './supabase'
+import { supabase, uniqueTopic } from './supabase'
 import { signPaths } from './friends'
 
 /**
@@ -76,7 +76,7 @@ export function useMyPhotoJobs(kind: PhotoKind, entryId?: string) {
   useEffect(() => {
     if (!userId) return
     void refresh()
-    const ch = supabase.channel(`photo_jobs:${userId}:${kind}:${entryId ?? ''}`)
+    const ch = supabase.channel(uniqueTopic(`photo_jobs:${userId}:${kind}:${entryId ?? ''}`))
       .on('postgres_changes', { event: '*', schema: 'public', table: 'photo_jobs', filter: `user_id=eq.${userId}` }, () => void refresh())
       .subscribe((status) => setLive(status === 'SUBSCRIBED'))
     window.addEventListener('focus', refresh)

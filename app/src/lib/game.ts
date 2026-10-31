@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from 'react'
-import { BUCKET, supabase } from './supabase'
+import { BUCKET, supabase, uniqueTopic } from './supabase'
 import { signPaths } from './friends'
 import { signPhotos } from './photos'
 import { downscale } from './cutout'
@@ -133,12 +133,15 @@ export function useRound(groupId?: string) {
 
   useEffect(() => {
     void refresh()
-    const ch = supabase.channel('rounds').on('postgres_changes', { event: '*', schema: 'public', table: 'rounds' }, () => void refresh()).subscribe()
+    // This squad's rounds only; another squad's clock moving is not this screen's business.
+    const ch = groupId
+      ? supabase.channel(uniqueTopic(`rounds:${groupId}`)).on('postgres_changes', { event: '*', schema: 'public', table: 'rounds', filter: `group_id=eq.${groupId}` }, () => void refresh()).subscribe()
+      : null
     const tick = setInterval(() => setNow(Date.now()), 1000)
     const onFocus = () => void refresh()
     window.addEventListener('focus', onFocus)
-    return () => { void supabase.removeChannel(ch); clearInterval(tick); window.removeEventListener('focus', onFocus) }
-  }, [refresh])
+    return () => { if (ch) void supabase.removeChannel(ch); clearInterval(tick); window.removeEventListener('focus', onFocus) }
+  }, [refresh, groupId])
 
   // The moment the clock crosses a boundary, ask the server to catch up (covers phones with no cron yet).
   const phase = state.current ? phaseOf(state.current, now) : undefined

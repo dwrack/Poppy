@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from 'react'
-import { supabase } from './supabase'
+import { supabase, uniqueTopic } from './supabase'
 import { describeItems, signPaths, type Borrow, type FriendItem, type Member } from './friends'
 import type { Chip } from './game'
 import type { Category } from '../types'
@@ -21,10 +21,10 @@ export function useRoundBorrows(roundId: string) {
   }, [roundId])
   useEffect(() => {
     void refresh()
-    const ch = supabase.channel('round-borrows').on('postgres_changes', { event: '*', schema: 'public', table: 'borrow_requests' }, () => void refresh()).subscribe()
+    const ch = supabase.channel(uniqueTopic(`round-borrows:${roundId}`)).on('postgres_changes', { event: '*', schema: 'public', table: 'borrow_requests', filter: `round_id=eq.${roundId}` }, () => void refresh()).subscribe()
     window.addEventListener('focus', refresh)
     return () => { void supabase.removeChannel(ch); window.removeEventListener('focus', refresh) }
-  }, [refresh])
+  }, [refresh, roundId])
   return { list, loaded: loadedFor === roundId, refresh }
 }
 
@@ -88,10 +88,10 @@ export function useStyledLooks(roundId: string) {
   }, [roundId])
   useEffect(() => {
     void refresh()
-    const ch = supabase.channel('styled-looks').on('postgres_changes', { event: '*', schema: 'public', table: 'styled_looks' }, () => void refresh()).subscribe()
+    const ch = supabase.channel(uniqueTopic(`styled-looks:${roundId}`)).on('postgres_changes', { event: '*', schema: 'public', table: 'styled_looks', filter: `round_id=eq.${roundId}` }, () => void refresh()).subscribe()
     window.addEventListener('focus', refresh)
     return () => { void supabase.removeChannel(ch); window.removeEventListener('focus', refresh) }
-  }, [refresh])
+  }, [refresh, roundId])
   return { looks, refresh }
 }
 

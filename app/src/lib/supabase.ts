@@ -7,3 +7,14 @@ const key = (import.meta.env.VITE_SUPABASE_KEY as string | undefined) ?? 'sb_pub
 
 export const supabase = createClient(url, key)
 export const BUCKET = 'closet'
+
+let topics = 0
+/**
+ * A fresh Realtime topic for a postgres_changes feed. supabase.channel(name)
+ * hands back an existing channel with the same name, so an effect that
+ * re-runs (switching squads, say) could get the old, still-closing channel
+ * and silently never subscribe. A unique name per subscription avoids that.
+ */
+export function uniqueTopic(base: string) {
+  return `${base}:${++topics}`
+}
