@@ -95,14 +95,19 @@ function Girl({ look, outfit, move, heightIn, onReady, onError, idle, restartKey
   const hair = useRef<THREE.Group>(null)
   const ready = useRef(false)
   const held = useRef(false)
+  // callbacks live in a ref: parents pass inline arrows, and a dependency on them
+  // re-ran this load on every parent render (found in step 2: the reveal re-parsed
+  // the 5 MB body on each state change and she was never on screen)
+  const cb = useRef({ onReady, onError, onHold })
+  useEffect(() => { cb.current = { onReady, onError, onHold } })
 
   // load once per mount
   useEffect(() => {
     let alive = true
     loadBody().then((b) => { if (alive) { bodyRef.current = b; setLoaded((n) => n + 1) } else disposeBody(b) })
-      .catch((e) => { console.warn('avatar load failed', e); onError?.(e) })
+      .catch((e) => { console.warn('avatar load failed', e); cb.current.onError?.(e) })
     return () => { alive = false }
-  }, [onError])
+  }, [])
 
   // mount into the scene; everything is torn down on unmount
   useEffect(() => {
@@ -176,9 +181,9 @@ function Girl({ look, outfit, move, heightIn, onReady, onError, idle, restartKey
   useFrame((_, dt) => {
     const a = anim.current
     if (!a) return
-    if (!ready.current) { a.snap(); ready.current = true; onReady?.() }
+    if (!ready.current) { a.snap(); ready.current = true; cb.current.onReady?.() }
     a.update(Math.min(dt, 0.05))
-    if (!held.current && a.holding) { held.current = true; onHold() }
+    if (!held.current && a.holding) { held.current = true; cb.current.onHold() }
   })
 
   return null

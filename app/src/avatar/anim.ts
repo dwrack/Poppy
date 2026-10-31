@@ -268,7 +268,7 @@ export class Animator {
   /** Advance by dt seconds. Smooths toward the sampled pose so switching moves never pops. */
   update(dt: number) {
     const hard = this.hard > 0
-    if (hard) { this.hard--; dt = 0 }
+    if (hard) { this.hard--; dt = 1 / 60 }
     this.t += dt
     const local = this.t - this.switchedAt
     const { pose, root } = sample(this.move, this.move === 'idle' ? this.t : local)
