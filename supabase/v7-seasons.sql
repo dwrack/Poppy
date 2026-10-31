@@ -32,9 +32,10 @@
 --   theme_packs has a date window per pack (month and day; the year in
 --   the column is ignored so the window repeats every year). When a round
 --   opens, advance_rounds() picks the least-recently-used theme from the
---   pack in season; outside every window it picks from Everyday. The app
---   reads the active pack's two colours through active_pack() and paints
---   the lobby card and the podium with them.
+--   pack in season (on the squad's local date); outside every window it
+--   picks from Everyday. The app paints the lobby card and the podium with
+--   the colours of the pack the current round's theme came from, and only
+--   asks active_pack() for today's pack while no round is in play.
 
 -- Theme packs --------------------------------------------------------------
 create table if not exists theme_packs (
@@ -128,22 +129,26 @@ language sql stable as $$
   end
 $$;
 
--- The pack in season today, else Everyday. One row.
-create or replace function active_pack()
+-- The pack in season on day d (the caller's local date; the app passes the
+-- phone's), else Everyday. One row. Only used when no round is open: an open
+-- round carries its own pack via themes.pack_id.
+drop function if exists active_pack();
+create or replace function active_pack(d date default current_date)
 returns table (id uuid, name text, lobby_colour text, confetti_colour text)
 language sql stable security definer set search_path = public as $$
   select p.id, p.name, p.lobby_colour, p.confetti_colour from theme_packs p
   where auth.uid() is not null
-  order by pack_active_on(p.starts_on, p.ends_on, current_date) desc, (p.name = 'Everyday') desc, p.starts_on
+  order by pack_active_on(p.starts_on, p.ends_on, d) desc, (p.name = 'Everyday') desc, p.starts_on
   limit 1
 $$;
 
--- Least-recently-used theme from the active pack, else from Everyday.
-create or replace function pick_theme() returns themes
+-- Least-recently-used theme from the pack in season on day d, else from Everyday.
+drop function if exists pick_theme();
+create or replace function pick_theme(d date default current_date) returns themes
 language sql stable security definer set search_path = public as $$
   select t.* from themes t
   join theme_packs p on p.id = t.pack_id
-  order by pack_active_on(p.starts_on, p.ends_on, current_date) desc, (p.name = 'Everyday') desc,
+  order by pack_active_on(p.starts_on, p.ends_on, d) desc, (p.name = 'Everyday') desc,
            t.used_at asc nulls first, random()
   limit 1
 $$;
@@ -309,7 +314,7 @@ revoke execute on function finish_round(uuid) from public, anon, authenticated;
 revoke execute on function create_round(uuid, timestamptz) from public, anon, authenticated;
 
 -- advance_rounds: same clock as step 1; the theme now comes from the pack
--- in season, and every round is stamped with its season and round number
+-- in season (on the squad's local date), and every round is stamped with its season and round number
 -- as it opens.
 create or replace function advance_rounds() returns void
 language plpgsql security definer set search_path = public as $$
@@ -322,8 +327,12 @@ begin
     perform create_round(g.id, case when g.played then next_drop(g.tz) else now() end);
   end loop;
 
-  for r in select id, group_id from rounds where status = 'upcoming' and opens_at <= now() order by opens_at loop
-    t := pick_theme();
+  -- The pack is judged on the squad's local date, not UTC, so Halloween
+  -- doesn't end at 7pm Chicago on Oct 31.
+  for r in select x.id, x.group_id, coalesce(gr.tz, 'America/Chicago') as tz
+           from rounds x join groups gr on gr.id = x.group_id
+           where x.status = 'upcoming' and x.opens_at <= now() order by x.opens_at loop
+    t := pick_theme((now() at time zone r.tz)::date);
     select count(*) into n from rounds x where x.group_id = r.group_id and x.status <> 'upcoming' and x.id <> r.id;
     update rounds set status = 'open', theme_id = coalesce(theme_id, t.id), theme = coalesce(theme, t.text),
                       season_no = coalesce(season_no, n / 12 + 1), round_no = coalesce(round_no, n % 12 + 1)

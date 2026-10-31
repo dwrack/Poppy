@@ -4,7 +4,7 @@ import { db } from '../db'
 import { useSquad, type Member } from '../lib/friends'
 import {
   CHIPS, CHIP_LABEL, castVote, countdown, loadLookbook, loadMyEntry, loadMyVotes, loadResults, loadRunway, loadSubmitted,
-  phaseEnds, rank, seededShuffle, setSquadTimeZone, startRoundNow, submitEntry, useActivePack, useRound, SEASON_ROUNDS,
+  packFor, phaseEnds, rank, seededShuffle, setSquadTimeZone, startRoundNow, submitEntry, useActivePack, useRound, SEASON_ROUNDS,
   type Chip, type EntryCard, type PastRound, type Result, type Round, type Vote,
 } from '../lib/game'
 import { useObjectUrl } from '../lib/useObjectUrl'
@@ -18,7 +18,8 @@ export function Runway({ userId, onAdd, onGoSquad }: { userId: string; onAdd: ()
   const group = squad.group
   const { loading, current, last, now, refresh } = useRound(group?.id)
   const isOwner = group?.owner_id === userId
-  const pack = useActivePack()
+  const todayPack = useActivePack()
+  const pack = packFor(current, last, todayPack)
 
   // The owner's phone decides what "Friday 5pm" means for the squad, once.
   useEffect(() => { if (group && isOwner && !group.tz) void setSquadTimeZone(group.id) }, [group, isOwner])

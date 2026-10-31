@@ -15,7 +15,10 @@ pushed or deployed. `cd app && npm run build` passes; `npx oxlint` reports 0 err
 - `themes.pack_id`. `advance_rounds()` now picks the least-used theme from the pack in
   season, else Everyday (`pick_theme()`), and stamps `rounds.season_no` and
   `rounds.round_no` (1 to 12) the moment a round opens. Existing rounds are backfilled.
-- `active_pack()` RPC: the pack in season today and its two colours.
+- `active_pack(d)` RPC: the pack in season on day d (the phone's local date) and its two
+  colours. Only used while no round is in play: the app joins each round's own pack
+  through `themes.pack_id`, so a round that straddles a pack boundary keeps its colours.
+  `pick_theme(d)` is judged on the squad's local date (`groups.tz`), not UTC.
 - `season_summary(g, s)`: per member, stars, looks entered, rounds voted, wins and
   rounds done for one 12-round season. Members of the squad only.
 - `season_badges` (user_id, group_id, season_no, badge) with RLS: you read your own
