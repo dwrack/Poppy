@@ -8,11 +8,13 @@ import {
   packFor, phaseEnds, rank, seededShuffle, setSquadTimeZone, startRoundNow, submitEntry, useActivePack, useRound, useSubmitted, SEASON_ROUNDS,
   type Chip, type EntryCard, type MyEntry, type PastRound, type Result, type Round, type Vote,
 } from '../lib/game'
+import { queueEntryPhoto, useMyPhotoJobs, useStudio } from '../lib/photos'
 import { useObjectUrl } from '../lib/useObjectUrl'
 import { CATEGORIES, CATEGORY_LABEL, type Category, type Item } from '../types'
 import { AvatarStage } from './AvatarStage'
 import { BorrowTab } from './BorrowTab'
 import { Chip as ChipButton } from './Chip'
+import { PhotoChip } from './PhotoChip'
 import { SeasonPodium } from './SeasonPodium'
 import { SeasonStrip } from './SeasonStrip'
 import { CardStack, LocalStack, type RemotePiece } from './Stack'
@@ -140,7 +142,12 @@ function OpenRound({ round, userId, members, now, onAdd }: { round: Round; userI
 
   if (entry === undefined) return <RoundCard round={round} now={now} />
 
-  const wear = async (look: StyledLook) => { await wearStyledLook(round.id, userId, look); setEditing(false); await Promise.all([load(), refreshLooks()]) }
+  const wear = async (look: StyledLook) => {
+    await wearStyledLook(round.id, userId, look); setEditing(false)
+    const e = await loadMyEntry(round.id, userId)
+    if (e) queueEntryPhoto(e.id, e.outfit.items) // the studio renders the styled look too
+    await Promise.all([load(), refreshLooks()])
+  }
   const wornId = entry?.styled_look_id ?? null
 
   if (!entry || editing) {
@@ -154,7 +161,11 @@ function OpenRound({ round, userId, members, now, onAdd }: { round: Round; userI
           onAdd={onAdd}
           onCancel={entry ? () => setEditing(false) : undefined}
           onSent={refreshLooks}
-          onSubmit={async (ids, b) => { await submitEntry(round.id, userId, ids, b); setEditing(false); await load() }}
+          onSubmit={async (ids, b) => {
+            const id = await submitEntry(round.id, userId, ids, b)
+            if (id) queueEntryPhoto(id, ids) // photo-real render for the reveal; the avatar covers it if it never comes
+            setEditing(false); await load()
+          }}
         />
       </>
     )
@@ -175,12 +186,27 @@ function OpenRound({ round, userId, members, now, onAdd }: { round: Round; userI
         </div>
         {styledBy && <p className="mt-2 text-center text-xs font-bold text-poppy">✨ Styled by {styledBy}</p>}
         {lent.length > 0 && <p className="mt-1 text-center text-xs text-mute">Borrowed: {lent.map((p) => `${p.name} from ${p.owner}`).join(', ')}</p>}
+        <EntryPhoto entryId={entry.id} />
         <p className="mt-3 text-center text-xs text-mute">Nobody sees it until the runway. No copying possible.</p>
       </section>
       <StyledLooks looks={forMe} wornId={wornId} onWear={wear} />
       <WhoIsIn members={members} submitted={submitted} userId={userId} live={live} />
     </>
   )
+}
+
+/** Where the studio is with the photo of my runway look. Hidden until a job exists. */
+function EntryPhoto({ entryId }: { entryId: string }) {
+  const { latest } = useMyPhotoJobs('entry', entryId)
+  const { online } = useStudio()
+  if (!latest) return null
+  return <PhotoChip job={latest} online={online} className="mt-2 text-center" note={latest.status === 'done' ? 'shows on the runway' : undefined} />
+}
+
+/** A small picture of a look: the photo-real render when there is one, else the cutout stack. */
+function LookThumb({ card, className }: { card: EntryCard; className: string }) {
+  if (card.photoUrl) return <img src={card.photoUrl} alt="" className={'rounded-xl object-cover ' + className} loading="lazy" data-testid="look-photo" />
+  return <CardStack card={card} className={className} />
 }
 
 function WhoIsIn({ members, submitted, userId, live }: { members: Member[]; submitted: string[]; userId: string; live: boolean }) {
@@ -361,6 +387,7 @@ function Show({ round, userId, now }: { round: Round; userId: string; now: numbe
           </div>
           <div className="rounded-blob bg-white p-4 ring-1 ring-black/5">
             {/* one canvas for the whole reveal: the stage stays, the girl, her clothes and the clock swap */}
+            {/* the photo-real render is the picture when it is in; AvatarStage keeps her behind it (tap to flip) */}
             <AvatarStage card={card} mode="reveal" className="mx-auto h-80 w-full max-w-[300px]" fallback={<CardStack card={card} className="h-full w-full" />} />
             <div key={card.entry_id} className="flip-in">
               <div className="mt-3 flex items-center justify-center gap-2">
@@ -391,7 +418,7 @@ function Show({ round, userId, now }: { round: Round; userId: string; now: numbe
         <section className="mt-4 space-y-2">
           {order.map((c, i) => (
             <button key={c.entry_id} onClick={() => { setIdx(i); setWalking(true) }} className="flex w-full items-center gap-3 rounded-2xl bg-white p-3 text-left ring-1 ring-black/5 active:scale-[0.99]">
-              <CardStack card={c} className="h-20 w-16 shrink-0" />
+              <LookThumb card={c} className="h-20 w-16 shrink-0" />
               <div className="min-w-0 flex-1">
                 <div className="font-bold">{c.emoji} {c.user_id === userId ? 'You' : c.display_name}</div>
                 <div className="text-xs text-mute">{c.pieces.length} {c.pieces.length === 1 ? 'piece' : 'pieces'}</div>
@@ -504,7 +531,7 @@ function Podium({ round, cards, results, userId, confetti, title, children }: { 
             <div className="flex -space-x-6">
               {b.rows.map((r) => (
                 <button key={r.card.entry_id} onClick={() => setPicked(r.card.entry_id)} className={'rounded-blob active:scale-95 ' + (shown?.card.entry_id === r.card.entry_id ? 'ring-[3px] ring-poppy' : '')} aria-label={`Show ${r.card.display_name} on the podium`}>
-                  <CardStack card={r.card} className="h-24 w-[72px]" />
+                  <LookThumb card={r.card} className="h-24 w-[72px]" />
                 </button>
               ))}
             </div>
@@ -583,7 +610,7 @@ function Lookbook({ groupId, userId, skipId, refreshKey }: { groupId: string; us
                 {ranked.map((r) => (
                   <div key={r.card.entry_id} className="w-20 shrink-0 text-center">
                     <div className="relative">
-                      <CardStack card={r.card} className="h-24 w-20" />
+                      <LookThumb card={r.card} className="h-24 w-20" />
                       {r.place <= 3 && <span className="absolute -top-1 -left-1 text-lg">{PLACE_EMOJI[r.place]}</span>}
                       {wore.has(r.card.user_id) && <span className="absolute -right-1 -bottom-1 rounded-full bg-sage px-1.5 text-[10px] font-extrabold text-white" title="Wore it for real">👗</span>}
                     </div>

@@ -22,6 +22,12 @@ export function AvatarStage({ card, mode, podium, fallback, className }: {
   className?: string
 }) {
   const key = card.entry_id
+  // Photo-real (BRIEF-v4): when the studio's photo of this look is in, it is the picture and she
+  // stands behind it, still loaded, so a tap flips to her instantly and back. One canvas either way.
+  const [flip, setFlip] = useState<{ key: string; photo: boolean }>({ key: '', photo: true })
+  const [broken, setBroken] = useState<string>()
+  const photoUrl = card.photoUrl && card.photoUrl !== broken ? card.photoUrl : undefined
+  const showPhoto = !!photoUrl && (flip.key === key ? flip.photo : true)
   const outfit = useMemo(() => outfitOf(card), [card])
   const [ready, setReady] = useState(false)
   const [failed, setFailed] = useState(false)
@@ -44,7 +50,8 @@ export function AvatarStage({ card, mode, podium, fallback, className }: {
       className={'relative overflow-hidden rounded-blob bg-gradient-to-b from-white to-butter/50 ring-1 ring-black/5 ' + (className ?? '')}
       data-testid="avatar-stage"
       data-ready={avatar && ready ? '1' : '0'}
-      onClick={() => { if (avatar && ready) setSpin((s) => ({ key, n: s.key === key ? s.n + 1 : 1 })) }}
+      data-photo={showPhoto ? '1' : '0'}
+      onClick={() => { if (showPhoto) setFlip({ key, photo: false }); else if (avatar && ready) setSpin((s) => ({ key, n: s.key === key ? s.n + 1 : 1 })) }}
     >
       {avatar && (
         <Suspense fallback={null}>
@@ -53,7 +60,18 @@ export function AvatarStage({ card, mode, podium, fallback, className }: {
       )}
       {/* the cutout stack: the whole picture until she is ready, the permanent picture without WebGL */}
       {!(avatar && ready) && <div className="absolute inset-0">{fallback}</div>}
-      {avatar && ready && (
+      {showPhoto && (
+        <img src={photoUrl} alt={`${card.display_name}'s look`} className="absolute inset-0 z-10 h-full w-full object-cover" data-testid="photo-real" onError={() => setBroken(photoUrl)} />
+      )}
+      {photoUrl && (
+        <button
+          onClick={(e) => { e.stopPropagation(); setFlip({ key, photo: !showPhoto }) }}
+          className="absolute top-2 left-2 z-20 rounded-full bg-white/90 px-2.5 py-1 text-[11px] font-bold shadow ring-1 ring-black/10 active:scale-95"
+          data-testid="photo-flip"
+        >{showPhoto ? '🧍 3D' : '📸 Photo'}</button>
+      )}
+      {showPhoto && <p className="pointer-events-none absolute bottom-1.5 left-0 right-0 z-20 text-center text-[10px] font-semibold text-white drop-shadow">tap to see her in 3D</p>}
+      {avatar && ready && !showPhoto && (
         <>
           <div className="pointer-events-none absolute top-2 right-2 flex flex-col gap-1" data-testid="piece-cards">
             {card.pieces.map((p) => (
