@@ -5,6 +5,7 @@ import { addMeasurement, deleteMeasurement, saveProfile } from '../lib/profileSy
 import { supabase } from '../lib/supabase'
 import { syncNow } from '../lib/sync'
 import { MePhotos } from './MePhotos'
+import { useStars } from '../lib/game'
 import { MEASURE_FIELDS, type MeasureField, type Profile } from '../types'
 
 const HAIR = ['black', 'dark brown', 'brown', 'light brown', 'auburn', 'red', 'blonde', 'grey', 'other']
@@ -23,6 +24,7 @@ export function You({ email, userId }: { email?: string; userId: string }) {
     <div className="safe-top flex min-h-full flex-col px-4 pt-3 pb-28">
       <h1 className="text-2xl font-extrabold">You</h1>
       <p className="mb-5 text-sm text-mute">{email}</p>
+      <StarsCard userId={userId} />
       <MePhotos userId={userId} />
       {loaded && <ProfileForm key={profile?.updatedAt ?? 0} profile={profile} />}
       <Measurements />
@@ -164,6 +166,27 @@ function Measurements() {
         </details>
       )}
     </Card>
+  )
+}
+
+function StarsCard({ userId }: { userId: string }) {
+  const { stars, title, next, toNext, from, to } = useStars(userId)
+  const pct = to ? Math.min(100, Math.round((((stars ?? 0) - from) / (to - from)) * 100)) : 100
+  return (
+    <section className="mb-4 rounded-blob bg-ink p-4 text-white">
+      <div className="flex items-end justify-between">
+        <div>
+          <div className="text-xs font-bold tracking-wide text-white/60 uppercase">Runway ladder</div>
+          <div className="text-2xl font-extrabold">{title}</div>
+        </div>
+        <div className="text-right">
+          <div className="text-3xl font-extrabold text-butter">{stars ?? '–'}</div>
+          <div className="text-xs text-white/60">stars</div>
+        </div>
+      </div>
+      <div className="mt-3 h-2 overflow-hidden rounded-full bg-white/15"><div className="h-full rounded-full bg-butter transition-all" style={{ width: pct + '%' }} /></div>
+      <p className="mt-1.5 text-xs text-white/70">{next ? `${toNext} more to ${next}` : 'Top of the ladder. Closet Goddess.'} · Stars come from votes on your looks, voting on time, and finishing rounds.</p>
+    </section>
   )
 }
 

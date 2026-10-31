@@ -2,12 +2,12 @@ import { useEffect, useState } from 'react'
 import { AddItem } from './components/AddItem'
 import { Closet } from './components/Closet'
 import { Friends } from './components/Friends'
-import { Soon } from './components/Soon'
+import { Runway } from './components/Runway'
 import { You } from './components/You'
 import { SignIn, useSession } from './lib/auth'
 import { syncNow } from './lib/sync'
 
-type Tab = 'today' | 'closet' | 'friends' | 'you'
+type Tab = 'runway' | 'closet' | 'friends' | 'you'
 
 export default function App() {
   const session = useSession()
@@ -30,12 +30,12 @@ export default function App() {
     <div className="flex min-h-full flex-col">
       <div className="flex-1">
         {tab === 'closet' && <Closet onAdd={() => setAdding(true)} />}
-        {tab === 'today' && <Soon emoji="☀️" title="Today" blurb="Once your closet has a few pieces, this is where your morning outfit shows up." />}
+        {tab === 'runway' && <Runway userId={session.user.id} onAdd={() => setAdding(true)} onGoSquad={() => setTab('friends')} />}
         {tab === 'friends' && <Friends userId={session.user.id} />}
         {tab === 'you' && <You email={session.user.email} userId={session.user.id} />}
       </div>
       <nav className="safe-bottom fixed inset-x-0 bottom-0 z-10 flex justify-around border-t border-black/5 bg-cream/95 pt-2 backdrop-blur">
-        <TabButton on={tab === 'today'} onClick={() => setTab('today')} emoji="☀️" label="Today" />
+        <TabButton on={tab === 'runway'} onClick={() => setTab('runway')} emoji="🏆" label="Runway" />
         <TabButton on={tab === 'closet'} onClick={() => setTab('closet')} emoji="🧥" label="Closet" />
         <TabButton on={tab === 'friends'} onClick={() => setTab('friends')} emoji="👯" label="Squad" />
         <TabButton on={tab === 'you'} onClick={() => setTab('you')} emoji="🪞" label="You" />

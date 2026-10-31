@@ -2,7 +2,7 @@ import { useCallback, useEffect, useState } from 'react'
 import { supabase, BUCKET } from './supabase'
 import type { Category, Colour } from '../types'
 
-export interface Group { id: string; name: string; owner_id: string }
+export interface Group { id: string; name: string; owner_id: string; tz?: string | null }
 export interface Member { group_id: string; user_id: string; display_name: string; emoji: string; role: 'owner' | 'member' }
 export interface FriendItem {
   id: string; user_id: string; name: string; category: Category; colours: Colour[]; pattern: string
@@ -19,7 +19,7 @@ export const APP_URL = 'https://dwrack.github.io/Poppy/v2/'
 const STORAGE = 'https://yrcddfehjjbtzwuotmym.supabase.co/storage/v1'
 
 /** Signed photo links for many paths at once, keyed by path. */
-async function signPaths(paths: string[]): Promise<Map<string, string>> {
+export async function signPaths(paths: string[]): Promise<Map<string, string>> {
   const { data } = await supabase.storage.from(BUCKET).createSignedUrls(paths, 3600)
   const out = new Map<string, string>()
   for (const u of (data ?? []) as { path: string | null; signedUrl?: string; signedURL?: string }[]) {
