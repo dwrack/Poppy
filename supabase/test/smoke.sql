@@ -302,6 +302,36 @@ do $$ declare r uuid := current_setting('smoke.r')::uuid; begin
 end $$;
 reset role;
 
+-- Borrowed pieces never go onto her photo: a lent piece is an image another account controls. Say b lent
+-- a her top (as superuser here, standing in for an approved borrow).
+update entries set outfit = '{"items":["10000000-0000-0000-0000-00000000000a","10000000-0000-0000-0000-0000000000a2","10000000-0000-0000-0000-00000000000b"],"borrowed":["10000000-0000-0000-0000-00000000000b"]}'
+  where id = current_setting('smoke.ea')::uuid;
+select pg_temp.act_as('a');
+set role authenticated;
+do $$ declare ea uuid := current_setting('smoke.ea')::uuid; begin
+  begin
+    insert into photo_jobs (kind, entry_id, item_ids) values ('entry', ea, '{10000000-0000-0000-0000-00000000000a,10000000-0000-0000-0000-0000000000a2,10000000-0000-0000-0000-00000000000b}');
+    raise exception 'v8: entry job with a borrowed piece was accepted';
+  exception when raise_exception then
+    if sqlerrm not like 'Borrowed pieces stay out of the photo%' then raise; end if;
+  end;
+  -- her own two pieces are the whole photo of that look
+  insert into photo_jobs (kind, entry_id, item_ids) values ('entry', ea, '{10000000-0000-0000-0000-00000000000a,10000000-0000-0000-0000-0000000000a2}');
+end $$;
+reset role;
+update photo_jobs set status = 'done', result_path = user_id::text || '/' || id::text || '.jpg', finished_at = now()
+  where entry_id = current_setting('smoke.ea')::uuid and status = 'queued';
+select set_config('smoke.jpath4', (select result_path from photo_jobs where entry_id = current_setting('smoke.ea')::uuid and status = 'done' order by created_at desc limit 1), false);
+select pg_temp.act_as('b');
+set role authenticated;
+do $$ declare r uuid := current_setting('smoke.r')::uuid; begin
+  assert (select photo_path from round_entry_cards_v2(r) where user_id = '00000000-0000-0000-0000-00000000000a') = current_setting('smoke.jpath4'), 'v8: a look with a borrowed piece shows the photo of her own pieces';
+  assert can_see_photo(current_setting('smoke.jpath4')), 'v8: b opens that photo';
+end $$;
+reset role;
+update entries set outfit = '{"items":["10000000-0000-0000-0000-00000000000a","10000000-0000-0000-0000-0000000000a2"],"borrowed":[]}'
+  where id = current_setting('smoke.ea')::uuid;
+
 -- Votes. a: self-vote must be rejected by RLS, vote on b's look allowed.
 select pg_temp.act_as('a');
 set role authenticated;

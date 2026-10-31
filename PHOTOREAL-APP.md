@@ -16,11 +16,15 @@ trick in AVATAR-STEP2.md).
 **Database** (`supabase/v8-photoreal.sql`, paste after v7, see V3-PASTE-ORDER.md)
 - `photo_jobs`: one row per requested photo. A trigger resets whatever
   the phone sent (status queued, attempts 0, no result/error/worker,
-  user_id = the caller, round copied from the entry). Dress me jobs may
-  only use her own closet pieces; entry jobs only her own entry and only
-  pieces in that look (the worker fetches with the service key, so it
-  must never be asked for anyone else's clothes). A new job rejects her
-  older queued ones ("superseded"). Phones cannot update or delete jobs.
+  user_id = the caller, round copied from the entry). Both kinds take
+  only her own closet pieces (the worker fetches with the service key, so
+  it must never be asked for anyone else's clothes); entry jobs also only
+  her own entry and only pieces in that look. A borrowed piece never goes
+  onto her photo: the lender can overwrite the image behind it after the
+  borrow is approved, and the worker would dress her in whatever is
+  there. It stays a cutout card beside the photo ("Borrowed pieces stay
+  out of the photo"). A new job rejects her older queued ones
+  ("superseded"). Phones cannot update or delete jobs.
 - `studio_status`: the worker's heartbeat row. Read-only to phones.
 - `entries.photo_job_id`: set by the worker when an entry photo is done.
 - `photoreal` bucket, private. You read your own photos once they are
@@ -51,10 +55,10 @@ trick in AVATAR-STEP2.md).
   approved (a safety check or the parent said no; she sees that, not an
   older photo), or Studio offline with the line "Studio is offline, your
   photo will arrive later." When ready the photo covers the stage with a
-  3D / Photo toggle;
-  the avatar stays loaded behind it. If she changed clothes since, the
-  chip says "earlier look".
-- Runway: sending a look (or wearing a styled one) queues its photo. The
+  3D / Photo toggle; the avatar stays loaded behind it. If she changed
+  clothes since, the chip says "earlier look".
+- Runway: sending a look (or wearing a styled one) queues a photo of her
+  own pieces in it; borrowed ones stay cutout cards beside it. The
   "Your look is in" card shows the chip ("earlier look" when the photo is
   of a look she has since changed). Reveal and podium show the photo
   when `photo_path` is there, with the avatar behind it: tap the photo or
@@ -103,6 +107,11 @@ trick in AVATAR-STEP2.md).
   picked them, so a hat or bag picked first can push shoes out.
 - A Dress me piece that has not finished syncing to Supabase is refused
   ("Some pieces are still uploading. Try again in a minute").
+- Borrowed pieces are not in the photo. To render them later, the job
+  would record each garment's storage object version (updated_at or
+  etag) at insert, the worker would refuse changed bytes, and any job
+  with a piece she does not own would always go to parent review,
+  whatever the auto-approve setting.
 - Parent review page (BRIEF-v4 step 1) is not in this build: the app
   shows "In review" but approving is the worker side / a later page.
 - Wore-it-for-real does not yet use the photo as its default image.

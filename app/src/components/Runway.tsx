@@ -8,7 +8,7 @@ import {
   packFor, phaseEnds, rank, seededShuffle, setSquadTimeZone, startRoundNow, submitEntry, useActivePack, useRound, useSubmitted, SEASON_ROUNDS,
   type Chip, type EntryCard, type MyEntry, type PastRound, type Result, type Round, type Vote,
 } from '../lib/game'
-import { coversLook, queueEntryPhoto, useMyPhotoJobs, useStudio } from '../lib/photos'
+import { coversLook, ownPieces, queueEntryPhoto, useMyPhotoJobs, useStudio } from '../lib/photos'
 import { useObjectUrl } from '../lib/useObjectUrl'
 import { CATEGORIES, CATEGORY_LABEL, type Category, type Item } from '../types'
 import { AvatarStage } from './AvatarStage'
@@ -145,7 +145,7 @@ function OpenRound({ round, userId, members, now, onAdd }: { round: Round; userI
   const wear = async (look: StyledLook) => {
     await wearStyledLook(round.id, userId, look); setEditing(false)
     const e = await loadMyEntry(round.id, userId)
-    if (e) queueEntryPhoto(e.id, e.outfit.items) // the studio renders the styled look too
+    if (e) queueEntryPhoto(e.id, e.outfit.items, e.outfit.borrowed) // the studio renders the styled look too
     await Promise.all([load(), refreshLooks()])
   }
   const wornId = entry?.styled_look_id ?? null
@@ -163,7 +163,7 @@ function OpenRound({ round, userId, members, now, onAdd }: { round: Round; userI
           onSent={refreshLooks}
           onSubmit={async (ids, b) => {
             const id = await submitEntry(round.id, userId, ids, b)
-            if (id) queueEntryPhoto(id, ids) // photo-real render for the reveal; the avatar covers it if it never comes
+            if (id) queueEntryPhoto(id, ids, b) // photo-real render of her own pieces for the reveal; the avatar covers it if it never comes
             setEditing(false); await load()
           }}
         />
@@ -186,7 +186,7 @@ function OpenRound({ round, userId, members, now, onAdd }: { round: Round; userI
         </div>
         {styledBy && <p className="mt-2 text-center text-xs font-bold text-poppy">✨ Styled by {styledBy}</p>}
         {lent.length > 0 && <p className="mt-1 text-center text-xs text-mute">Borrowed: {lent.map((p) => `${p.name} from ${p.owner}`).join(', ')}</p>}
-        <EntryPhoto entryId={entry.id} look={entry.outfit.items} />
+        <EntryPhoto entryId={entry.id} look={ownPieces(entry.outfit.items, entry.outfit.borrowed)} />
         <p className="mt-3 text-center text-xs text-mute">Nobody sees it until the runway. No copying possible.</p>
       </section>
       <StyledLooks looks={forMe} wornId={wornId} onWear={wear} />

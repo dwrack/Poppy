@@ -32,7 +32,7 @@ function friendly(e: { message: string }) {
   return new Error(e.message.replace(/^.*?: /, ''))
 }
 
-/** Ask the studio for a photo. Dress me: pieces from her own closet. Entry: pieces from that runway look. */
+/** Ask the studio for a photo. Dress me: pieces from her own closet. Entry: her own pieces in that runway look. */
 export async function queuePhoto(kind: PhotoKind, itemIds: string[], entryId?: string): Promise<PhotoJob> {
   const item_ids = [...new Set(itemIds)].slice(0, MAX_PHOTO_PIECES)
   if (!item_ids.length) throw new Error('Put something on first.')
@@ -43,10 +43,22 @@ export async function queuePhoto(kind: PhotoKind, itemIds: string[], entryId?: s
   return data as PhotoJob
 }
 
-/** Queue the photo for a runway look. Fire and forget: the reveal falls back to the avatar if it never arrives. */
-export function queueEntryPhoto(entryId: string, itemIds: string[]) {
-  if (!itemIds.length) return
-  queuePhoto('entry', itemIds, entryId).catch(() => { /* table not pasted yet, or offline: the avatar covers it */ })
+/**
+ * Queue the photo for a runway look. Fire and forget: the reveal falls back
+ * to the avatar if it never arrives. Borrowed pieces are dropped: a friend's
+ * piece never goes onto her photo (her account can swap the image behind it
+ * after the borrow was approved), it stays a cutout card beside it.
+ */
+export function queueEntryPhoto(entryId: string, itemIds: string[], borrowed: string[] = []) {
+  const own = ownPieces(itemIds, borrowed)
+  if (!own.length) return
+  queuePhoto('entry', own, entryId).catch(() => { /* table not pasted yet, or offline: the avatar covers it */ })
+}
+
+/** The pieces of a runway look that can go in its photo: hers, not the borrowed ones. */
+export function ownPieces(itemIds: string[], borrowed: string[] = []) {
+  const lent = new Set(borrowed)
+  return itemIds.filter((id) => !lent.has(id))
 }
 
 /**
@@ -154,7 +166,8 @@ export function photoChip(job: PhotoJob | undefined, studioOnline: boolean): { l
  * Is this job a photo of the look as it stands? The rule entry_photo_job()
  * uses in v8-photoreal.sql: every piece of the job is still in the look,
  * and it has as many pieces as a photo holds (all of them, or
- * MAX_PHOTO_PIECES when the look has more).
+ * MAX_PHOTO_PIECES when the look has more). For a runway look, pass her
+ * own pieces only (ownPieces).
  */
 export function coversLook(job: Pick<PhotoJob, 'item_ids'>, look: string[]) {
   const ids = new Set(look)

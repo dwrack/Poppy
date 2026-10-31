@@ -34,6 +34,9 @@
 -- The contract with the studio worker (~/Projects/poppy-photoreal):
 --   photo_jobs     one row per requested photo. The app inserts kind,
 --                  entry_id, item_ids (round_id is copied from the entry);
+--                  item_ids are always the player's own pieces, for both
+--                  kinds (a borrowed piece in a runway look stays a cutout
+--                  card beside the photo, never on her);
 --                  a trigger forces everything else. The worker (service
 --                  role) moves status queued > rendering > review > done
 --                  (or failed / rejected), uploads to
@@ -96,7 +99,7 @@ begin
     -- your own runway look only, and the round comes from the entry
     select e.round_id into new.round_id from entries e where e.id = new.entry_id and e.user_id = new.user_id;
     if not found then raise exception 'That runway look is not yours'; end if;
-    -- only pieces that are in that look (borrowed ones included)
+    -- only pieces that are in that look
     if exists (select 1 from unnest(new.item_ids) x(id)
                where not exists (select 1 from entries e, jsonb_array_elements_text(coalesce(e.outfit->'items', '[]'::jsonb)) o(id)
                                  where e.id = new.entry_id and o.id = x.id::text)) then
@@ -105,11 +108,16 @@ begin
   else
     new.entry_id := null;
     new.round_id := null;
-    -- Dress me: your own closet only (the worker fetches with the service key, so it must not be asked for anyone else's)
-    if exists (select 1 from unnest(new.item_ids) x(id)
-               where not exists (select 1 from items i where i.id = x.id and i.user_id = new.user_id)) then
-      raise exception 'Some pieces are still uploading. Try again in a minute';
-    end if;
+  end if;
+  -- Both kinds: your own closet only. The worker fetches garments with the
+  -- service key, so it must not be asked for anyone else's. And a friend's
+  -- piece is an image her account can swap after the borrow was approved
+  -- (her closet files are hers to overwrite), so it never goes onto your
+  -- photo: in a runway look it stays a cutout card beside it.
+  if exists (select 1 from unnest(new.item_ids) x(id)
+             where not exists (select 1 from items i where i.id = x.id and i.user_id = new.user_id)) then
+    if new.kind = 'entry' then raise exception 'Borrowed pieces stay out of the photo'; end if;
+    raise exception 'Some pieces are still uploading. Try again in a minute';
   end if;
   return new;
 end $$;
@@ -134,22 +142,24 @@ create trigger photo_jobs_supersede after insert on photo_jobs
 
 -- The photo of a runway look as it stands: the newest done job for that
 -- entry whose pieces are all still in the look and that covers as much of
--- it as one photo holds (every piece, or 6 when the look has more). A
--- render of a look she has since changed never stands in for the current
--- one, whether the newer job is still waiting, failed, was rejected, or
--- was never queued at all (an offline phone, an old build). The runway
--- cards, the squad's read of photo_jobs and the squad's read of the
--- bucket all go through this one rule.
+-- it as one photo holds (every one of her own pieces in it, or 6 when
+-- there are more; borrowed pieces never go in the photo). A render of a
+-- look she has since changed never stands in for the current one, whether
+-- the newer job is still waiting, failed, was rejected, or was never
+-- queued at all (an offline phone, an old build). The runway cards, the
+-- squad's read of photo_jobs and the squad's read of the bucket all go
+-- through this one rule.
 create or replace function entry_photo_job(e uuid) returns uuid
 language sql stable security definer set search_path = public as $$
   select j.id
   from entries en
   cross join lateral (
-    select array_agg(distinct x.id) as ids
-    from jsonb_array_elements_text(coalesce(en.outfit->'items', '[]'::jsonb)) x(id)) look
+    select array_agg(distinct i.id) as ids
+    from jsonb_array_elements_text(coalesce(en.outfit->'items', '[]'::jsonb)) x(id)
+    join items i on i.id::text = x.id and i.user_id = en.user_id) look
   join photo_jobs j on j.entry_id = en.id
   where en.id = e and j.kind = 'entry' and j.status = 'done'
-    and j.item_ids::text[] <@ look.ids
+    and j.item_ids <@ look.ids
     and cardinality(j.item_ids) = least(6, cardinality(look.ids))
   order by j.created_at desc, j.id desc
   limit 1
