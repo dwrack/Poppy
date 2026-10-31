@@ -38,3 +38,13 @@ Shortcut to skip a wait, run in the SQL Editor: `update rounds set closes_at = n
 11. Season podium without waiting 12 weeks: `update rounds set round_no = 12 where status = 'done' and group_id = '<squad id>' and round_no = (select max(round_no) from rounds where status = 'done' and group_id = '<squad id>');` then `select award_season_badges('<squad id>', 1);`. Reopen Runway while the next round is upcoming: the season podium sits above "Last round"; the badge holder sees it on You. Undo with the reverse update.
 12. Privacy: a non-member running `select * from round_actions;`, `select * from season_badges;` or `select * from styled_looks;` as themselves gets 0 rows.
 13. Leave it alone past Friday 5pm squad time: the next round opens on its own (the pg_cron check); round 12 closing hands out badges and round 13 opens as "Season 2 · round 1 of 12".
+
+## v4: photo-real looks (paste after everything above)
+
+7. `supabase/v8-photoreal.sql`: `photo_jobs` (the render queue), `studio_status` (the studio Mac's heartbeat), `entries.photo_job_id`, the private `photoreal` bucket and its read rules, and `round_entry_cards_v2()` again with `photo_path` = the finished photo. AFTER v7 and after v4b on purpose: v4b defines the same cards function without the photo. Safe to re-run. If you ever paste v4b again, paste v8 straight after it.
+
+Bucket fallback: after the paste, Storage should list `photoreal` with a lock. If it is not there (some projects refuse the bucket insert from the SQL Editor), Storage > New bucket > name `photoreal`, Public bucket OFF > Create, then paste v8 once more so the read rules attach.
+
+Studio key, once, on the MacBook: Project Settings > API > service_role > Reveal > copy, then in Terminal `mkdir -p ~/.config/poppy && pbpaste > ~/.config/poppy/service_key && chmod 600 ~/.config/poppy/service_key`. That file is the only place it lives: not the app, not this repo, not a vault, not a chat. The app keeps its publishable key.
+
+Before the worker has ever checked in, Dress me and the "Your look is in" card say "Studio is offline, your photo will arrive later." and jobs wait in the queue. Check with `select * from studio_status;` (one row once the worker runs) and `select status, count(*) from photo_jobs group by 1;`.
