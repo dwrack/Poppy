@@ -16,7 +16,7 @@ import { chromium } from 'playwright-core'
 
 const app = resolve(dirname(fileURLToPath(import.meta.url)), '..')
 const extraDir = process.argv[2]
-const PORT = 4173
+const PORT = Number(process.env.SHOT_PORT) || 4173
 
 const server = spawn('npx', ['vite', 'preview', '--port', String(PORT), '--strictPort'], { cwd: app, stdio: ['ignore', 'pipe', 'pipe'] })
 await new Promise((ok, bad) => {
@@ -73,8 +73,9 @@ try {
   await page.goto(`http://localhost:${PORT}/`, { waitUntil: 'networkidle' })
   await page.getByRole('heading', { name: 'Closet', exact: true }).waitFor({ timeout: 15000 })
 
-  // Seed four pieces straight into the Dexie database, then reload so the live queries see them.
-  await page.evaluate(async () => {
+  // Seed four pieces straight into this account's own Dexie database (one per account since v4), then reload so the live queries see them.
+  const DB = `poppyseed-v2-${USER}`
+  await page.evaluate(async (DB) => {
     const png = (draw) => new Promise((ok) => {
       const c = document.createElement('canvas'); c.width = c.height = 300
       const g = c.getContext('2d'); draw(g); c.toBlob(ok, 'image/png')
@@ -97,13 +98,20 @@ try {
       const { draw, ...rest } = it
       rows.push({ ...rest, warmth: 3, formality: 2, seasons: ['spring'], status: 'active', favourite: false, tucked: false, photo: blob, cutout: blob, createdAt: now, updatedAt: now, synced: 0 })
     }
-    const db = await new Promise((ok, bad) => { const r = indexedDB.open('poppyseed-v2'); r.onsuccess = () => ok(r.result); r.onerror = () => bad(r.error) })
+    // the app creates it as the closet opens; wait for that rather than racing it
+    let db
+    for (let i = 0; i < 50 && !db; i++) {
+      if ((await indexedDB.databases()).some((d) => d.name === DB)) db = await new Promise((ok, bad) => { const r = indexedDB.open(DB); r.onsuccess = () => ok(r.result); r.onerror = () => bad(r.error) })
+      if (db && !db.objectStoreNames.contains('items')) { db.close(); db = undefined }
+      if (!db) await new Promise((ok) => setTimeout(ok, 100))
+    }
+    if (!db) throw new Error('closet database never appeared')
     const tx = db.transaction(['items', 'profile'], 'readwrite')
     for (const r of rows) tx.objectStore('items').put(r)
     tx.objectStore('profile').put({ id: 'me', heightIn: 60, updatedAt: now, synced: 0 })
     await new Promise((ok, bad) => { tx.oncomplete = ok; tx.onerror = () => bad(tx.error) })
     db.close()
-  })
+  }, DB)
   await page.reload({ waitUntil: 'networkidle' })
   await page.getByTestId('dress-me-button').click()
   await page.locator('[data-testid=dress-me] canvas').waitFor({ timeout: 20000 })
@@ -167,13 +175,13 @@ try {
       { face: 'chill', skin: 'olive', hair: 'curls', hairColour: 'dark brown', eyes: 'grey' },
     ]
     for (const look of looks) {
-      await page.evaluate(async (l) => {
-        const db = await new Promise((ok) => { const r = indexedDB.open('poppyseed-v2'); r.onsuccess = () => ok(r.result) })
+      await page.evaluate(async ([l, DB]) => {
+        const db = await new Promise((ok) => { const r = indexedDB.open(DB); r.onsuccess = () => ok(r.result) })
         const tx = db.transaction(['avatar'], 'readwrite')
         tx.objectStore('avatar').put({ id: 'me', ...l, updatedAt: Date.now(), synced: 0 })
         await new Promise((ok) => { tx.oncomplete = ok })
         db.close()
-      }, look)
+      }, [look, DB])
       await page.reload({ waitUntil: 'networkidle' })
       await page.getByTestId('dress-me-button').click()
       await page.locator('[data-testid=dress-me] canvas').waitFor({ timeout: 20000 })

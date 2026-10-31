@@ -1,11 +1,7 @@
 import { db } from '../db'
 import { supabase } from './supabase'
 import { DEFAULT_LOOK, type AvatarLook, type AvatarPresets } from '../types'
-
-async function uid() {
-  const { data } = await supabase.auth.getUser()
-  return data.user?.id ?? null
-}
+import { signedInDb, stillBound } from './account'
 
 type Row = { user_id: string; face: string; skin: string; hair: string; hair_colour: string; eyes: string; updated_at: string }
 
@@ -22,25 +18,26 @@ export async function saveAvatar(patch: Partial<AvatarLook>) {
 }
 
 async function pushAvatar() {
-  const userId = await uid()
-  if (!userId) return
-  const a = await db.avatar.get('me')
-  if (!a || a.synced !== 0) return
+  const me = await signedInDb()
+  if (!me) return
+  const a = await me.db.avatar.get('me')
+  if (!a || a.synced !== 0 || !stillBound(me.db)) return
   const { error } = await supabase.from('avatar_presets').upsert({
-    user_id: userId, face: a.face, skin: a.skin, hair: a.hair, hair_colour: a.hairColour, eyes: a.eyes,
+    user_id: me.userId, face: a.face, skin: a.skin, hair: a.hair, hair_colour: a.hairColour, eyes: a.eyes,
     updated_at: new Date(a.updatedAt).toISOString(),
   })
-  if (!error) await db.avatar.update('me', { synced: 1 })
+  if (!error) await me.db.avatar.update('me', { synced: 1 })
   else console.warn('avatar push failed', error)
 }
 
 async function pullAvatar() {
-  const userId = await uid()
-  if (!userId) return
-  const { data: row } = await supabase.from('avatar_presets').select('*').eq('user_id', userId).maybeSingle()
-  const local = await db.avatar.get('me')
+  const me = await signedInDb()
+  if (!me) return
+  const { data: row } = await supabase.from('avatar_presets').select('*').eq('user_id', me.userId).maybeSingle()
+  if (!stillBound(me.db)) return
+  const local = await me.db.avatar.get('me')
   if (row && (!local || (local.synced === 1 && Date.parse(row.updated_at) > local.updatedAt))) {
-    await db.avatar.put({ id: 'me', ...fromRow(row as Row), updatedAt: Date.parse(row.updated_at), synced: 1 })
+    await me.db.avatar.put({ id: 'me', ...fromRow(row as Row), updatedAt: Date.parse(row.updated_at), synced: 1 })
   }
 }
 

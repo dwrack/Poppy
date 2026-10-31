@@ -18,7 +18,7 @@ import { chromium } from 'playwright-core'
 
 const app = resolve(dirname(fileURLToPath(import.meta.url)), '..')
 const extraDir = process.argv[2]
-const PORT = 4174
+const PORT = Number(process.env.SHOT_PORT) || 4174
 
 const server = spawn('npx', ['vite', 'preview', '--port', String(PORT), '--strictPort'], { cwd: app, stdio: ['ignore', 'pipe', 'pipe'] })
 await new Promise((ok, bad) => {

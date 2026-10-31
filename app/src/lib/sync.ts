@@ -1,6 +1,7 @@
-import { db } from '../db'
+import { db, type PoppyDb } from '../db'
 import { BUCKET, supabase } from './supabase'
 import type { Item } from '../types'
+import { signedInDb, stillBound } from './account'
 import { syncProfile } from './profileSync'
 import { syncAvatar } from './avatarSync'
 
@@ -10,11 +11,6 @@ type Row = {
   status: string; favourite: boolean; tucked: boolean; photo_path: string; cutout_path: string
   fabric: string | null; fit: string | null; feel: string | null; links: Item['links'] | null; size: string | null
   created_at: string; updated_at: string
-}
-
-async function uid() {
-  const { data } = await supabase.auth.getUser()
-  return data.user?.id ?? null
 }
 
 const paths = (userId: string, id: string) => ({
@@ -53,46 +49,61 @@ export async function deleteItem(id: string) {
   void pushPending()
 }
 
-let pushing: Promise<void> | null = null
+// One push at a time per database; a different account's database gets its own.
+let pushing: { db: PoppyDb; done: Promise<void> } | null = null
 export function pushPending() {
-  if (!pushing) pushing = doPush().finally(() => { pushing = null })
-  return pushing
+  if (pushing?.db !== db) {
+    const local = db
+    const done = doPush().finally(() => { if (pushing?.done === done) pushing = null })
+    pushing = { db: local, done }
+  }
+  return pushing.done
 }
 
+/**
+ * Upload this account's unsynced pieces and deletions. Everything here comes
+ * from the signed-in account's own database and goes up under its own id; if
+ * the account changes part way, the loop stops and the rest waits for its owner.
+ */
 async function doPush() {
-  const userId = await uid()
-  if (!userId) return
+  const me = await signedInDb()
+  if (!me) return
+  const { userId, db: local } = me
 
-  for (const { id } of await db.tombstones.toArray()) {
+  for (const { id } of await local.tombstones.toArray()) {
+    if (!stillBound(local)) return
     const p = paths(userId, id)
     await supabase.storage.from(BUCKET).remove([p.photo, p.cutout])
-    const { error } = await supabase.from('items').delete().eq('id', id)
-    if (!error) await db.tombstones.delete(id)
+    const { error } = await supabase.from('items').delete().eq('id', id).eq('user_id', userId)
+    if (!error) await local.tombstones.delete(id)
   }
 
-  const dirty = await db.items.where('synced').equals(0).toArray()
+  const dirty = await local.items.where('synced').equals(0).toArray()
   for (const item of dirty) {
+    if (!stillBound(local)) return
     const p = paths(userId, item.id)
     const [a, b] = await Promise.all([
       supabase.storage.from(BUCKET).upload(p.photo, item.photo, { upsert: true, contentType: 'image/jpeg' }),
       supabase.storage.from(BUCKET).upload(p.cutout, item.cutout, { upsert: true, contentType: 'image/png' }),
     ])
     if (a.error || b.error) { console.warn('upload failed', a.error ?? b.error); continue }
-    const { error } = await supabase.from('items').upsert(toRow(item, userId))
+    const { error } = await supabase.from('items').upsert({ ...toRow(item, userId), user_id: userId })
     if (error) { console.warn('row upsert failed', error); continue }
-    await db.items.update(item.id, { synced: 1 })
+    await local.items.update(item.id, { synced: 1 })
   }
 }
 
-/** Bring down anything in the cloud we don't have locally (new device, reinstall). */
+/** Bring down anything in the cloud we don't have locally (new device, reinstall). Only into the signed-in account's own database. */
 export async function pullAll() {
-  const userId = await uid()
-  if (!userId) return
-  const { data, error } = await supabase.from('items').select('*')
+  const me = await signedInDb()
+  if (!me) return
+  const { userId, db: local } = me
+  const { data, error } = await supabase.from('items').select('*').eq('user_id', userId)
   if (error || !data) { console.warn('pull failed', error); return }
+  if (!stillBound(local)) return
 
-  const localIds = new Set((await db.items.toCollection().primaryKeys()) as string[])
-  const dead = new Set((await db.tombstones.toCollection().primaryKeys()) as string[])
+  const localIds = new Set((await local.items.toCollection().primaryKeys()) as string[])
+  const dead = new Set((await local.tombstones.toCollection().primaryKeys()) as string[])
   const cloudIds = new Set<string>()
 
   for (const row of data as Row[]) {
@@ -102,8 +113,8 @@ export async function pullAll() {
       supabase.storage.from(BUCKET).download(row.photo_path),
       supabase.storage.from(BUCKET).download(row.cutout_path),
     ])
-    if (!photo.data || !cutout.data) continue
-    await db.items.put({
+    if (!photo.data || !cutout.data || !stillBound(local)) continue
+    await local.items.put({
       id: row.id, name: row.name, category: row.category as Item['category'], colours: row.colours as Item['colours'],
       pattern: row.pattern as Item['pattern'], warmth: row.warmth as Item['warmth'], formality: row.formality as Item['formality'],
       seasons: row.seasons as Item['seasons'], brand: row.brand ?? undefined, notes: row.notes ?? undefined,
@@ -116,9 +127,9 @@ export async function pullAll() {
 
   // Anything synced locally but gone from the cloud was deleted elsewhere.
   for (const id of localIds) {
-    if (cloudIds.has(id)) continue
-    const it = await db.items.get(id)
-    if (it?.synced === 1) await db.items.delete(id)
+    if (cloudIds.has(id) || !stillBound(local)) continue
+    const it = await local.items.get(id)
+    if (it?.synced === 1) await local.items.delete(id)
   }
 }
 
