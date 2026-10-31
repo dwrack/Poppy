@@ -1,21 +1,24 @@
 import { useLiveQuery } from 'dexie-react-hooks'
-import { useCallback, useEffect, useMemo, useState, type ReactNode } from 'react'
+import { useCallback, useEffect, useMemo, useState, type CSSProperties, type ReactNode } from 'react'
 import { db } from '../db'
 import { useSquad, type Member } from '../lib/friends'
 import {
   CHIPS, CHIP_LABEL, castVote, countdown, loadLookbook, loadMyEntry, loadMyVotes, loadResults, loadRunway, loadSubmitted,
-  phaseEnds, rank, seededShuffle, setSquadTimeZone, startRoundNow, submitEntry, useRound,
+  phaseEnds, rank, seededShuffle, setSquadTimeZone, startRoundNow, submitEntry, useActivePack, useRound, SEASON_ROUNDS,
   type Chip, type EntryCard, type PastRound, type Result, type Round, type Vote,
 } from '../lib/game'
 import { useObjectUrl } from '../lib/useObjectUrl'
 import { CATEGORIES, CATEGORY_LABEL, type Category, type Item } from '../types'
 import { Chip as ChipButton } from './Chip'
+import { SeasonPodium } from './SeasonPodium'
+import { SeasonStrip } from './SeasonStrip'
 
 export function Runway({ userId, onAdd, onGoSquad }: { userId: string; onAdd: () => void; onGoSquad: () => void }) {
   const squad = useSquad(userId)
   const group = squad.group
   const { loading, current, last, now, refresh } = useRound(group?.id)
   const isOwner = group?.owner_id === userId
+  const pack = useActivePack()
 
   // The owner's phone decides what "Friday 5pm" means for the squad, once.
   useEffect(() => { if (group && isOwner && !group.tz) void setSquadTimeZone(group.id) }, [group, isOwner])
@@ -24,13 +27,14 @@ export function Runway({ userId, onAdd, onGoSquad }: { userId: string; onAdd: ()
   if (!group) return <NoSquad onGoSquad={onGoSquad} />
 
   return (
-    <div className="safe-top flex min-h-full flex-col px-4 pt-3 pb-28">
+    <div className="safe-top flex min-h-full flex-col px-4 pt-3 pb-28" style={{ '--pack-lobby': pack.lobby_colour, '--pack-confetti': pack.confetti_colour } as CSSProperties}>
       <div className="flex items-end justify-between">
         <div>
           <h1 className="text-2xl font-extrabold">Runway</h1>
-          <p className="text-sm text-mute">{group.name} · one round a week</p>
+          <p className="text-sm text-mute">{group.name} · one round a week{pack.name !== 'Everyday' && ` · ${pack.name} pack`}</p>
         </div>
       </div>
+      {current && <SeasonStrip round={current.status === 'upcoming' && last ? last : current} packName={pack.name} />}
 
       {loading ? (
         <p className="py-10 text-center text-mute">Checking the clock…</p>
@@ -39,6 +43,7 @@ export function Runway({ userId, onAdd, onGoSquad }: { userId: string; onAdd: ()
       ) : current.status === 'upcoming' ? (
         <>
           <Upcoming round={current} now={now} isOwner={isOwner} groupId={group.id} onStarted={refresh} />
+          {last?.round_no === SEASON_ROUNDS && last.season_no && <SeasonPodium groupId={group.id} seasonNo={last.season_no} userId={userId} />}
           {last && <LastRound round={last} userId={userId} />}
         </>
       ) : current.status === 'open' ? (
@@ -62,7 +67,7 @@ const PHASE_LABEL: Record<Round['status'], string> = {
 function RoundCard({ round, now, children }: { round: Round; now: number; children?: ReactNode }) {
   const left = (round.status === 'reveal' ? Date.parse(round.voting_ends_at) : phaseEnds(round)) - now
   return (
-    <section className="mt-4 rounded-blob bg-ink p-5 text-white shadow-lg">
+    <section className="mt-4 rounded-blob p-5 text-white shadow-lg" style={{ background: 'var(--pack-lobby)' }}>
       <div className="text-xs font-bold tracking-wide text-white/60 uppercase">{round.status === 'upcoming' ? 'This week' : 'The theme'}</div>
       <h2 className="mt-1 text-2xl leading-tight font-extrabold">{round.theme ?? 'Shh, it’s a secret until it drops'}</h2>
       <div className="mt-3 flex items-center justify-between text-sm">
@@ -463,7 +468,7 @@ function Podium({ round, cards, results, userId, confetti, title }: { round: Rou
               {b.rows.map((r) => (r.card.user_id === userId ? 'You' : r.card.display_name)).join(' & ')}
               <div className="text-mute">{b.rows[0].result.total} ⭐</div>
             </div>
-            <div className={'mt-1 flex w-full items-start justify-center rounded-t-xl pt-1 text-xl ' + heights[b.place] + ' ' + (b.place === 1 ? 'bg-butter' : 'bg-cream')}>
+            <div className={'mt-1 flex w-full items-start justify-center rounded-t-xl pt-1 text-xl ' + heights[b.place] + ' ' + (b.place === 1 ? '' : 'bg-cream')} style={b.place === 1 ? { background: 'var(--pack-confetti)' } : undefined}>
               {PLACE_EMOJI[b.place]}{b.place === 1 && <span className="ml-1 rounded-full bg-ink px-2 py-0.5 text-[10px] font-extrabold text-white">WINNER</span>}
             </div>
           </div>
@@ -488,7 +493,7 @@ function Podium({ round, cards, results, userId, confetti, title }: { round: Rou
   )
 }
 
-const CONFETTI_COLOURS = ['#e76f51', '#f4a261', '#ffe8b6', '#2a9d8f', '#f9c6d0', '#9b5de5']
+const CONFETTI_COLOURS = ['var(--pack-confetti)', '#f4a261', '#ffe8b6', '#2a9d8f', '#f9c6d0', '#9b5de5', 'var(--pack-confetti)']
 
 function Confetti() {
   const [on, setOn] = useState(true)
