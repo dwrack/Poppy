@@ -14,10 +14,11 @@ set-state-in-effect notes in game.ts and Runway.tsx).
   `out`/`cancelled`). Round borrows can only be made by a squad member
   while the round is open.
 - `styled_looks`: a look one friend built for another from HER closet,
-  with one compliment chip. `sent -> worn | declined`. RLS: sender inserts
+  with one compliment chip. `sent -> declined` is stored; `worn` is derived
+  from the recipient's entry pointing at the look. RLS: sender inserts
   as herself, only to a squad mate, only her pieces, only while open;
   recipient reads and can only flip the status (a trigger locks every
-  other column); the squad reads after the reveal. The stylist reads her
+  other column); the squad reads only the worn look, after the reveal. The stylist reads her
   own sent looks through `styled_looks_for_round()`, which reports them
   as `sent` until the runway plays, so she cannot tell before the reveal
   whether her friend wore it.
@@ -45,7 +46,7 @@ set-state-in-effect notes in game.ts and Runway.tsx).
   8), picks one compliment chip, and sends it.
 - `app/src/components/StyledLooks.tsx`: looks styled for you appear in
   your dressing room as cards. "Wear it" makes it your entry in one tap
-  (and marks it worn); "Nah" declines.
+  (the entry pointing at it is what marks it worn); "Nah" declines.
 - Runway + podium show "styled by Ava" and "borrowed from Mia" under a
   look. The Squad tab's Borrowing board labels round requests
   "for this week's runway"; the owner answers yes/no there as before.

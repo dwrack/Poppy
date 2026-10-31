@@ -88,17 +88,22 @@ export async function sendStyledLook(roundId: string, toUser: string, itemIds: s
   if (error) throw friendly(error)
 }
 
-export async function answerStyledLook(id: string, status: Exclude<LookStatus, 'sent'>) {
+/** Wave a look off (or take that back). 'worn' is never written: it is derived from my entry. */
+export async function answerStyledLook(id: string, status: Exclude<LookStatus, 'worn'>) {
   const { error } = await supabase.from('styled_looks').update({ status }).eq('id', id)
   if (error) throw friendly(error)
 }
 
-/** Wear a styled look as my entry: the entry first (so the policy checks it is mine), then mark it worn. */
+/**
+ * Wear a styled look as my entry. One write: the entry points at the look, and
+ * that pointer is what makes it 'worn' (styled_looks_for_round, round_entry_cards,
+ * styled_win stars all read it from there). Wearing another look, or building my
+ * own in the dressing room, moves or clears the pointer, so nothing can drift.
+ */
 export async function wearStyledLook(roundId: string, userId: string, look: StyledLook) {
   const { error } = await supabase.from('entries').upsert(
     { round_id: roundId, user_id: userId, outfit: { items: look.item_ids, borrowed: [] }, styled_look_id: look.id, submitted_at: new Date().toISOString() },
     { onConflict: 'round_id,user_id' },
   )
   if (error) throw friendly(error)
-  await answerStyledLook(look.id, 'worn')
 }
