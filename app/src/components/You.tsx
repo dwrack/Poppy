@@ -5,6 +5,7 @@ import { addMeasurement, deleteMeasurement, saveProfile } from '../lib/profileSy
 import { supabase } from '../lib/supabase'
 import { syncNow } from '../lib/sync'
 import { MePhotos } from './MePhotos'
+import { SquadLadder } from './SquadLadder'
 import { useStars } from '../lib/game'
 import { MEASURE_FIELDS, type MeasureField, type Profile } from '../types'
 
@@ -25,6 +26,7 @@ export function You({ email, userId }: { email?: string; userId: string }) {
       <h1 className="text-2xl font-extrabold">You</h1>
       <p className="mb-5 text-sm text-mute">{email}</p>
       <StarsCard userId={userId} />
+      <SquadLadder userId={userId} />
       <MePhotos userId={userId} />
       {loaded && <ProfileForm key={profile?.updatedAt ?? 0} profile={profile} />}
       <Measurements />
