@@ -6,7 +6,7 @@ set -euo pipefail
 cd "$(dirname "$0")/../.."
 C=poppy-pg
 PSQL="docker exec -i $C psql -q -v ON_ERROR_STOP=1 -U postgres -d postgres"
-FILES=(schema.sql v2-friends.sql v2-smart.sql v3-game.sql v4-avatar.sql v5-game-loop.sql v6-borrow-style.sql v7-seasons.sql)
+FILES=(schema.sql v2-friends.sql v2-smart.sql v3-game.sql v4-avatar.sql v5-game-loop.sql v6-borrow-style.sql v4b-avatar-runway.sql v7-seasons.sql)
 
 docker rm -f $C >/dev/null 2>&1 || true
 docker run -d --name $C -e POSTGRES_PASSWORD=pw -p 55432:5432 postgres:16 >/dev/null

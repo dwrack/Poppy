@@ -39,10 +39,15 @@ do $$ declare g uuid := current_setting('smoke.g')::uuid; begin
   end;
 end $$;
 
--- One closet piece each (photo paths are only text here).
-insert into items (id, user_id, name, category, photo_path, cutout_path) values
-  ('10000000-0000-0000-0000-00000000000a', '00000000-0000-0000-0000-00000000000a', 'a top', 'top', 'a/p.jpg', 'a/c.png'),
-  ('10000000-0000-0000-0000-00000000000b', '00000000-0000-0000-0000-00000000000b', 'b top', 'top', 'b/p.jpg', 'b/c.png')
+-- One closet piece each (photo paths are only text here). Colours and a
+-- pattern on a's piece, and avatar presets for a, so the v4b avatar cards
+-- have something to carry.
+insert into items (id, user_id, name, category, photo_path, cutout_path, colours, pattern) values
+  ('10000000-0000-0000-0000-00000000000a', '00000000-0000-0000-0000-00000000000a', 'a top', 'top', 'a/p.jpg', 'a/c.png', '{red,black}', 'stripe'),
+  ('10000000-0000-0000-0000-00000000000b', '00000000-0000-0000-0000-00000000000b', 'b top', 'top', 'b/p.jpg', 'b/c.png', '{blue}', 'solid')
+on conflict do nothing;
+insert into avatar_presets (user_id, face, skin, hair, hair_colour, eyes) values
+  ('00000000-0000-0000-0000-00000000000a', 'sunny', 'tan', 'bob', 'pink', 'green')
 on conflict do nothing;
 
 -- Owner starts a round now and enters.
@@ -65,6 +70,8 @@ do $$ declare r uuid := current_setting('smoke.r')::uuid; begin
   insert into entries (round_id, outfit) values (r, '{"items":["10000000-0000-0000-0000-00000000000b"],"borrowed":[]}');
   assert (select count(*) from entries where round_id = r) = 1, 'hidden until reveal: b sees only her own entry';
   assert (select count(*) from round_entry_cards(r)) = 1, 'hidden until reveal: round_entry_cards shows only own';
+  assert (select count(*) from round_entry_cards_v2(r)) = 1
+     and (select user_id from round_entry_cards_v2(r)) = auth.uid(), 'hidden until reveal: v2 avatar cards show only own';
   assert (select count(*) from round_submitted(r)) = 2, 'who is in shows both names';
   -- b cannot wear a's piece without a borrow approval.
   begin
@@ -83,6 +90,7 @@ do $$ declare r uuid := current_setting('smoke.r')::uuid; begin
   assert (select count(*) from rounds) = 0, 'non-member sees no rounds';
   assert (select count(*) from entries) = 0, 'non-member sees no entries';
   assert (select count(*) from round_entry_cards(r)) = 0, 'non-member gets no cards';
+  assert (select count(*) from round_entry_cards_v2(r)) = 0, 'non-member gets no v2 cards';
   assert (select count(*) from group_members) = 0, 'non-member sees no members';
   assert (select count(*) from stars_ledger) = 0, 'non-member sees no stars';
 end $$;
@@ -103,6 +111,15 @@ do $$ declare r uuid := current_setting('smoke.r')::uuid;
            ea uuid := current_setting('smoke.ea')::uuid; eb uuid := current_setting('smoke.eb')::uuid; begin
   assert (select count(*) from entries where round_id = r) = 2, 'after reveal both entries visible';
   assert (select count(*) from round_entry_cards(r)) = 2, 'after reveal both cards visible';
+  -- v4b: the avatar cards carry each piece's colours and pattern, the owner, and the entrant's presets.
+  assert (select count(*) from round_entry_cards_v2(r)) = 2, 'after reveal both v2 cards visible';
+  assert (select pieces->0->'colours' from round_entry_cards_v2(r) where user_id = '00000000-0000-0000-0000-00000000000a') = '["red","black"]'::jsonb, 'v2 piece colours';
+  assert (select pieces->0->>'pattern' from round_entry_cards_v2(r) where user_id = '00000000-0000-0000-0000-00000000000a') = 'stripe', 'v2 piece pattern';
+  assert (select pieces->0->>'owner' from round_entry_cards_v2(r) where user_id = '00000000-0000-0000-0000-00000000000b') = 'Bea', 'v2 piece owner name';
+  assert (select avatar from round_entry_cards_v2(r) where user_id = '00000000-0000-0000-0000-00000000000a')
+       = '{"face":"sunny","skin":"tan","hair":"bob","hair_colour":"pink","eyes":"green"}'::jsonb, 'v2 carries the entrant presets';
+  assert (select avatar from round_entry_cards_v2(r) where user_id = '00000000-0000-0000-0000-00000000000b') is null, 'v2 avatar null when she has no presets';
+  assert (select styled_by from round_entry_cards_v2(r) where entry_id = eb) is null, 'v2 styled_by null for a self-styled look';
   begin
     insert into votes (entry_id, stars, chip) values (ea, 5, 'fit');
     raise exception 'self-vote was accepted';

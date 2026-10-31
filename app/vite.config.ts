@@ -31,11 +31,17 @@ export default defineConfig({
   ],
   optimizeDeps: { exclude: ['@imgly/background-removal'] },
   build: {
-    rollupOptions: {
+    rolldownOptions: {
       output: {
-        // three, react-three and three-vrm in one chunk that only the avatar views import
-        manualChunks(id) {
-          if (/node_modules\/(three|@react-three|@pixiv|three-stdlib|maath|zustand|suspend-react|its-fine|react-reconciler|camera-controls|detect-gpu|react-use-measure|tunnel-rat)\//.test(id)) return 'avatar-vendor'
+        // Explicit groups with priorities: react first, then the three stack. With the old
+        // `manualChunks` callback rolldown folded react into avatar-vendor, so the main bundle
+        // imported it statically and index.html modulepreloaded the whole 1.1 MB three stack
+        // on first paint (found in step 2). Now the avatar chunk only loads with the avatar.
+        codeSplitting: {
+          groups: [
+            { name: 'react-vendor', priority: 2, test: /node_modules[\\/](react|react-dom|scheduler|use-sync-external-store|@babel[\\/]runtime)[\\/]/ },
+            { name: 'avatar-vendor', priority: 1, test: /node_modules[\\/](three|@react-three|@pixiv|three-stdlib|maath|zustand|suspend-react|its-fine|react-reconciler|camera-controls|detect-gpu|react-use-measure|tunnel-rat)[\\/]/ },
+          ],
         },
       },
     },

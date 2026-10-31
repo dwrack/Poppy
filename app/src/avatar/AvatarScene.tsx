@@ -18,9 +18,19 @@ export interface AvatarSceneProps {
   heightIn?: number
   /** tighter framing for the You-tab card */
   compact?: boolean
+  /**
+   * Change this to play the current move again from its first frame (the
+   * next girl on the runway). The scene, body and GPU resources stay put;
+   * only look, outfit and the clock change.
+   */
+  restartKey?: string | number
+  /** A podium block under her feet: 1 is the tall centre one. */
+  podium?: 1 | 2 | 3
   onReady?: () => void
   onError?: (e: unknown) => void
 }
+
+const PODIUM_H: Record<1 | 2 | 3, number> = { 1: 0.16, 2: 0.1, 3: 0.06 }
 
 /**
  * The avatar on a canvas. iPhone Safari rules live here: no antialias,
@@ -30,7 +40,12 @@ export interface AvatarSceneProps {
 export default function AvatarScene(props: AvatarSceneProps) {
   const move = props.move ?? 'idle'
   const [dragging, setDragging] = useState(false)
-  const idle = move === 'idle' && !dragging
+  // `reveal` is a one-shot: once she is holding the final pose, drop back to demand frames
+  const clock = `${move}/${props.restartKey ?? ''}`
+  const [heldFor, setHeldFor] = useState<string>()
+  const holding = heldFor === clock
+  const idle = (move === 'idle' || move === 'strike' || holding) && !dragging
+  const lift = props.podium ? PODIUM_H[props.podium] : 0
   return (
     <Canvas
       flat
@@ -43,13 +58,20 @@ export default function AvatarScene(props: AvatarSceneProps) {
       <hemisphereLight args={['#fffaf3', '#cdbcae', 1.15]} />
       <directionalLight position={[1.5, 3, 2.5]} intensity={1.3} />
       <directionalLight position={[-2, 2, -1.5]} intensity={0.35} />
-      <Girl {...props} move={move} idle={idle} />
-      <mesh rotation-x={-Math.PI / 2} position-y={0.002}>
-        <circleGeometry args={[0.55, 40]} />
-        <meshBasicMaterial color="#f1e4d6" />
-      </mesh>
+      <Girl {...props} move={move} idle={idle} lift={lift} onHold={() => setHeldFor(clock)} />
+      {props.podium ? (
+        <mesh position-y={lift / 2}>
+          <cylinderGeometry args={[0.5, 0.55, lift, 40]} />
+          <meshToonMaterial color={props.podium === 1 ? '#ffe8b6' : '#f1e4d6'} />
+        </mesh>
+      ) : (
+        <mesh rotation-x={-Math.PI / 2} position-y={0.002}>
+          <circleGeometry args={[0.55, 40]} />
+          <meshBasicMaterial color="#f1e4d6" />
+        </mesh>
+      )}
       <OrbitControls
-        target={[0, props.compact ? 1.25 : 0.88, 0]}
+        target={[0, (props.compact ? 1.25 : 0.88) + lift, 0]}
         enableZoom={false}
         enablePan={false}
         enableDamping={false}
@@ -63,7 +85,7 @@ export default function AvatarScene(props: AvatarSceneProps) {
   )
 }
 
-function Girl({ look, outfit, move, heightIn, onReady, onError, idle }: AvatarSceneProps & { move: Move; idle: boolean }) {
+function Girl({ look, outfit, move, heightIn, onReady, onError, idle, restartKey, lift, onHold }: AvatarSceneProps & { move: Move; idle: boolean; lift: number; onHold: () => void }) {
   const { scene, camera, invalidate } = useThree()
   // three.js objects are mutable by nature, so the body lives in a ref; `loaded` ticks when it arrives
   const bodyRef = useRef<Body>(null)
@@ -72,14 +94,20 @@ function Girl({ look, outfit, move, heightIn, onReady, onError, idle }: AvatarSc
   const anim = useRef<Animator>(null)
   const hair = useRef<THREE.Group>(null)
   const ready = useRef(false)
+  const held = useRef(false)
+  // callbacks live in a ref: parents pass inline arrows, and a dependency on them
+  // re-ran this load on every parent render (found in step 2: the reveal re-parsed
+  // the 5 MB body on each state change and she was never on screen)
+  const cb = useRef({ onReady, onError, onHold })
+  useEffect(() => { cb.current = { onReady, onError, onHold } })
 
   // load once per mount
   useEffect(() => {
     let alive = true
     loadBody().then((b) => { if (alive) { bodyRef.current = b; setLoaded((n) => n + 1) } else disposeBody(b) })
-      .catch((e) => { console.warn('avatar load failed', e); onError?.(e) })
+      .catch((e) => { console.warn('avatar load failed', e); cb.current.onError?.(e) })
     return () => { alive = false }
-  }, [onError])
+  }, [])
 
   // mount into the scene; everything is torn down on unmount
   useEffect(() => {
@@ -128,6 +156,21 @@ function Girl({ look, outfit, move, heightIn, onReady, onError, idle }: AvatarSc
     invalidate()
   }, [loaded, move, invalidate])
 
+  // same move, next girl: play it again from the first frame
+  useEffect(() => {
+    if (!bodyRef.current) return
+    anim.current?.restart()
+    held.current = false
+    invalidate()
+  }, [loaded, restartKey, invalidate])
+
+  useEffect(() => {
+    const body = bodyRef.current
+    if (!body) return
+    body.vrm.scene.position.y = lift
+    invalidate()
+  }, [loaded, lift, invalidate])
+
   // idle: a gentle 20 fps heartbeat instead of a full render loop
   useEffect(() => {
     if (!loaded || !idle) return
@@ -138,8 +181,9 @@ function Girl({ look, outfit, move, heightIn, onReady, onError, idle }: AvatarSc
   useFrame((_, dt) => {
     const a = anim.current
     if (!a) return
-    if (!ready.current) { a.snap(); ready.current = true; onReady?.() }
+    if (!ready.current) { a.snap(); ready.current = true; cb.current.onReady?.() }
     a.update(Math.min(dt, 0.05))
+    if (!held.current && a.holding) { held.current = true; cb.current.onHold() }
   })
 
   return null

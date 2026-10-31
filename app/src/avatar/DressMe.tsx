@@ -8,10 +8,10 @@ import {
 } from '../types'
 import { Chip } from '../components/Chip'
 import AvatarScene from './AvatarScene'
-import { MOVE_LABEL, MOVES, type Move } from './anim'
+import { MOVE_LABEL, MOVES, type UiMove } from './anim'
 
 const NONE: Item[] = []
-const MOVE_EMOJI: Record<Move, string> = { idle: '🧍', walk: '🚶', sit: '🪑', twirl: '💫', runway: '✨' }
+const MOVE_EMOJI: Record<UiMove, string> = { idle: '🧍', walk: '🚶', sit: '🪑', twirl: '💫', runway: '✨' }
 
 /**
  * Dress me: her avatar, her closet, tap a piece to put it on. Reached from
@@ -25,7 +25,7 @@ export default function DressMe({ onClose }: { onClose: () => void }) {
   const look = useMemo(() => presetsToLook(presets), [presets])
   const [worn, setWorn] = useState<Partial<Record<OutfitSlot, string>>>({})
   const [slot, setSlot] = useState<OutfitSlot>('top')
-  const [move, setMove] = useState<Move>('idle')
+  const [move, setMove] = useState<UiMove>('idle')
   const [ready, setReady] = useState(false)
   const [failed, setFailed] = useState(false)
 

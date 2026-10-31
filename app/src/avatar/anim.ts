@@ -8,9 +8,17 @@ import type { VRM, VRMHumanBoneName } from '@pixiv/three-vrm'
  * Step 2 can swap any of these for a retargeted clip without touching
  * the scene.
  */
+/** The five moves Dress me offers as buttons. */
 export const MOVES = ['idle', 'walk', 'sit', 'twirl', 'runway'] as const
-export type Move = (typeof MOVES)[number]
-export const MOVE_LABEL: Record<Move, string> = { idle: 'Idle', walk: 'Walk', sit: 'Sit', twirl: 'Twirl', runway: 'Runway' }
+export type UiMove = (typeof MOVES)[number]
+/**
+ * Plus two for the Runway tab: `strike` holds the hand-on-hip pose (podium),
+ * `reveal` walks in, poses, turns once and holds (one entry's walk, not a loop).
+ */
+export type Move = UiMove | 'strike' | 'reveal'
+export const MOVE_LABEL: Record<UiMove, string> = { idle: 'Idle', walk: 'Walk', sit: 'Sit', twirl: 'Twirl', runway: 'Runway' }
+/** When the `reveal` move has finished and is just holding the pose, in seconds from its start. */
+export const REVEAL_HOLD_AT = 5.6
 
 const D = Math.PI / 180
 type Pose = Partial<Record<VRMHumanBoneName, [number, number, number]>>
@@ -130,6 +138,31 @@ export function sample(move: Move, t: number): { pose: Pose; root: Root } {
       return { pose: walk(t), root }
     }
     case 'sit': root.hipsDrop = 0.4; return { pose: sit(t), root }
+    case 'strike': return { pose: strike(t, 1), root }
+    case 'reveal': {
+      // walk 3.2 s from the back to centre, settle into the pose 1.1 s, one slow full turn 1.3 s, then hold
+      const far = -2.6
+      if (t < 3.2) {
+        const k = t / 3.2
+        root.z = far * (1 - k)
+        root.bounce = Math.abs(Math.sin(t * (2 * Math.PI / 1.1))) * 0.02
+        const p = walk(t, 1)
+        p.head = [-3 * D, 0, 0]
+        return { pose: p, root }
+      }
+      if (t < 4.3) {
+        const k = clamp01((t - 3.2) / 0.35)
+        if (k < 1) return { pose: blend(walk(t, 0), strike(t, 1), ease(k)), root }
+        return { pose: strike(t, 1), root }
+      }
+      if (t < REVEAL_HOLD_AT) {
+        const k = ease((t - 4.3) / (REVEAL_HOLD_AT - 4.3))
+        root.yaw = k * Math.PI * 2
+        root.bounce = Math.sin(k * Math.PI) * 0.015
+        return { pose: strike(t, 1), root }
+      }
+      return { pose: strike(t, 1), root }
+    }
     case 'twirl': {
       // 1.6 s of spin (two turns), 1.1 s to land and breathe, repeat
       const T = 2.7, u = t % T
@@ -208,6 +241,8 @@ export class Animator {
   private blinkAt = 2.5
   private move: Move = 'idle'
   private switchedAt = 0
+  /** frames left that jump straight to the sampled pose (no slerp, no time advance) */
+  private hard = 0
   private root: Root = { x: 0, z: 0, yaw: 0, bounce: 0, hipsDrop: 0 }
   private vrm: VRM
   private restHipsY: number
@@ -219,13 +254,25 @@ export class Animator {
     this.switchedAt = this.t
   }
   get current() { return this.move }
+  /** Seconds since the current move started. */
+  get local() { return this.t - this.switchedAt }
+  /** True once a one-shot move (`reveal`) is only holding its final pose. */
+  get holding() { return this.move === 'reveal' && this.local >= REVEAL_HOLD_AT }
+
+  /** Start the current move over from its first frame, placed instantly (the next girl's walk on the runway). */
+  restart() {
+    this.switchedAt = this.t
+    this.hard = 2
+  }
 
   /** Advance by dt seconds. Smooths toward the sampled pose so switching moves never pops. */
   update(dt: number) {
+    const hard = this.hard > 0
+    if (hard) { this.hard--; dt = 1 / 60 }
     this.t += dt
     const local = this.t - this.switchedAt
     const { pose, root } = sample(this.move, this.move === 'idle' ? this.t : local)
-    const k = 1 - Math.exp(-dt * 14)
+    const k = hard ? 1 : 1 - Math.exp(-dt * 14)
     const h = this.vrm.humanoid
     for (const name of ALL_BONES) {
       const node = h.getNormalizedBoneNode(name)
@@ -240,7 +287,7 @@ export class Animator {
     const hips = h.getNormalizedBoneNode('hips')
     if (hips) hips.position.y += (this.restHipsY - root.hipsDrop + root.bounce - hips.position.y) * k
     // root motion: position and facing of the whole girl
-    const rk = this.move === 'runway' || this.move === 'twirl' ? 1 : k
+    const rk = hard || this.move === 'runway' || this.move === 'twirl' || this.move === 'reveal' ? 1 : k
     this.root.x += (root.x - this.root.x) * rk
     this.root.z += (root.z - this.root.z) * rk
     this.root.yaw += (root.yaw - this.root.yaw) * rk
@@ -261,7 +308,7 @@ export class Animator {
   }
 
   /** Jump straight to the pose (first frame after load, no slerp). */
-  snap() { for (let i = 0; i < 40; i++) this.update(1 / 30) }
+  snap() { this.restart() }
 }
 
 const X_AXIS = new THREE.Vector3(1, 0, 0)

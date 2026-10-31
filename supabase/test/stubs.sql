@@ -31,6 +31,7 @@ create schema if not exists cron;
 create or replace function cron.schedule(text, text, text) returns bigint language sql as $$ select 1::bigint $$;
 -- grants like Supabase's defaults
 grant usage on schema public to anon, authenticated, service_role;
+grant usage on schema auth to anon, authenticated, service_role; -- real Supabase lets clients call auth.uid()
 alter default privileges in schema public grant all on tables to anon, authenticated, service_role;
 alter default privileges in schema public grant all on functions to anon, authenticated, service_role;
 alter default privileges in schema public grant all on sequences to anon, authenticated, service_role;

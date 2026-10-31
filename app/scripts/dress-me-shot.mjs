@@ -45,7 +45,8 @@ await ctx.route(/supabase\.co\//, (route) => {
 
 const page = await ctx.newPage()
 const errors = []
-page.on('console', (m) => { if (m.type() === 'error') errors.push(m.text()) })
+// the Realtime socket cannot resolve the host offline; that is the sandbox, not the app
+page.on('console', (m) => { if (m.type() === 'error' && !m.text().includes('realtime/v1/websocket')) errors.push(m.text()) })
 page.on('pageerror', (e) => errors.push('pageerror: ' + e.message))
 
 try {

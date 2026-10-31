@@ -1,8 +1,8 @@
 # Poppyseed v3: SQL paste order and the merged squad test plan
 
-Merged to `master` 2026-10-31: avatar step 1, game loop 1, borrow/style, seasons.
+Merged to `master` 2026-10-31: avatar step 1, game loop 1, borrow/style, seasons, avatar step 2 (runway).
 Not pushed, not deployed. `cd app && npm run build` passes, `npx oxlint` 0 errors.
-SQL reviewed by hand only (no local Postgres); v7 is the superset file, see its header.
+SQL chain tested on a local Postgres (`supabase/test/local-chain.sh`: two passes + smoke); v7 is the superset file, see its header.
 
 ## Paste, in this order (Supabase dashboard, project yrcddfehjjbtzwuotmym, SQL Editor > New query > paste the WHOLE file > Run)
 
@@ -12,7 +12,8 @@ Every file is idempotent: "Success. No rows returned", safe to re-run. If you ar
 2. `supabase/v4-avatar.sql`: avatar_presets table + RLS so her avatar follows her between phones. Safe to re-run.
 3. `supabase/v5-game-loop.sql`: theme prop columns, round_actions (wore it), squad_ladder, squad_season view, entries Realtime. Safe to re-run.
 4. `supabase/v6-borrow-style.sql`: borrow_requests.round_id, styled_looks, entries.styled_look_id, outfit check, lent_it/styled_win stars. Safe to re-run.
-5. `supabase/v7-seasons.sql`: theme_packs, season/round numbering, season_badges. LAST on purpose: it redefines advance_rounds() and finish_round() as the union of v3 + v5 + v6 + v7, and pins the full stars_ledger reason list. Safe to re-run. Never paste v3, v5 or v6 after it (they would overwrite the clock with an older version); if you must, paste v7 again afterwards.
+5. `supabase/v4b-avatar-runway.sql`: `round_entry_cards_v2()`, the reveal/podium cards with each piece's colours and pattern, the entrant's avatar presets, and the same owner and "styled by" credit as v6's cards. AFTER v6 on purpose (it reads styled_looks). Safe to re-run. Until it is pasted the app degrades gracefully: the reveal still plays, the avatars walk in grey clothes with presets fetched separately, and the credits still show.
+6. `supabase/v7-seasons.sql`: theme_packs, season/round numbering, season_badges. LAST on purpose: it redefines advance_rounds() and finish_round() as the union of v3 + v5 + v6 + v7, and pins the full stars_ledger reason list. Safe to re-run. Never paste v3, v5 or v6 after it (they would overwrite the clock with an older version); if you must, paste v7 again afterwards.
 
 Then, once only: Database > Extensions > enable `pg_cron`, and in the SQL Editor run
 
