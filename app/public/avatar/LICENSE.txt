@@ -1,0 +1,35 @@
+poppy-base.vrm
+==============
+
+Source file:  VRM1_Constraint_Twist_Sample.vrm
+Source page:  https://github.com/vrm-c/vrm-specification/tree/master/samples/VRM1_Constraint_Twist_Sample
+Direct link:  https://raw.githubusercontent.com/vrm-c/vrm-specification/master/samples/VRM1_Constraint_Twist_Sample/vrm/VRM1_Constraint_Twist_Sample.vrm
+Also at:      https://github.com/pixiv/three-vrm/tree/dev/packages/three-vrm/examples/models
+Author:       pixiv Inc.   (c) 2022 pixiv Inc.
+Licence:      VRM Public License 1.0  https://vrm.dev/licenses/1.0/
+Downloaded:   2026-10-31
+
+The licence terms that matter are the flags the author set inside the file
+(VRMC_vrm.meta, read from the downloaded file on 2026-10-31):
+
+  avatarPermission:        everyone                      (anyone may use it as their avatar)
+  allowRedistribution:     true
+  modification:            allowModificationRedistribution
+  commercialUsage:         corporation                   (we are non-commercial anyway)
+  creditNotation:          unnecessary                   (credited here regardless)
+  allowAntisocialOrHateUsage: false
+  allowPoliticalOrReligiousUsage: true
+  allowExcessivelyViolentUsage / allowExcessivelySexualUsage: true (irrelevant; not used that way)
+
+What we changed (allowed under "modification: allowModificationRedistribution"):
+  - Textures downscaled so the file fits iPhone Safari limits:
+    everything capped at 1024 px, normal/specular maps at 512 px, thumbnail
+    at 256 px. 10.8 MB -> 5.5 MB. Geometry, rig, spring bones, expressions
+    and the meta block are untouched. Script: see AVATAR-STEP1.md.
+  - At runtime the app recolours skin, hair, eyes and the clothing
+    materials, hides the long back hair for some hair styles, and attaches
+    its own procedural hair and garment meshes to the bones. The file on
+    disk is not altered by any of that.
+
+Use inside Poppyseed Clothes: a private, invite-only closet game for a
+family and friends. No money, no strangers, no hateful or antisocial use.
