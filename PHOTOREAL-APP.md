@@ -60,13 +60,14 @@ trick in AVATAR-STEP2.md).
   otherwise), `useStudio` (offline when no heartbeat or older than
   10 minutes), `signPhotos` / `usePhotoUrl` through `signPaths` with the
   bucket now a parameter, `photoChip`.
-- Dress me: "📸 Photo" button on the stage queues what she is wearing (up
-  to 6 pieces). Chip: Queued, Rendering, In review, Ready, Failed, Not
-  approved (a safety check or the parent said no; she sees that, not an
-  older photo), or Studio offline with the line "Studio is offline, your
-  photo will arrive later." When ready the photo covers the stage with a
-  3D / Photo toggle; the avatar stays loaded behind it. If she changed
-  clothes since, the chip says "earlier look".
+- Dress me: "📸 Photo" button on the stage queues what she is wearing (at
+  most 4 pieces there: top and bottom or a dress, a jacket, shoes; a
+  photo takes up to 5). Chip: Queued, Rendering, In review, Ready,
+  Failed, Not approved (a safety check or the parent said no; she sees
+  that, not an older photo), or Studio offline with the line "Studio is
+  offline, your photo will arrive later." When ready the photo covers the
+  stage with a 3D / Photo toggle; the avatar stays loaded behind it. If
+  she changed clothes since, the chip says "earlier look".
 - Runway: sending a look (or wearing a styled one) queues a photo of her
   own pieces in it; borrowed ones stay cutout cards beside it. The
   "Your look is in" card shows the chip ("earlier look" when the photo is
@@ -80,7 +81,10 @@ trick in AVATAR-STEP2.md).
 
 - Project `yrcddfehjjbtzwuotmym`, `https://yrcddfehjjbtzwuotmym.supabase.co`.
 - `photo_jobs`: id, user_id, kind (`dressme` | `entry`), entry_id, round_id,
-  item_ids (1 to 6), status (`queued` > `rendering` > `review` > `done`,
+  item_ids (1 to 5 of her own pieces, in the studio's category order:
+  top, bottom, dress, outerwear, shoes, hat, scarf, bag, accessory; the
+  worker's own limit is 5 too: her photo plus 5 garments in one pass),
+  status (`queued` > `rendering` > `review` > `done`,
   or `failed` / `rejected`), result_path (`<user_id>/<job_id>.jpg` in
   bucket `photoreal`), error, attempts, worker, created_at, started_at,
   finished_at. Phones insert kind, entry_id, round_id, item_ids only.
@@ -118,8 +122,12 @@ trick in AVATAR-STEP2.md).
 
 ## Rough edges and open points
 
-- Entries can hold 8 pieces; the job takes the first 6 in the order she
-  picked them, so a hat or bag picked first can push shoes out.
+- Entries can hold 8 pieces; a photo holds 5. The app sorts her own
+  pieces into the studio's category order before it cuts, so a hat or
+  bag picked first never pushes the shoes or the jacket out; anything
+  past 5 (the accessories, by that order) stays a cutout card beside the
+  photo. Two pieces of one category both go in the job; the studio draws
+  the first.
 - A Dress me piece that has not finished syncing to Supabase is refused
   ("Some pieces are still uploading. Try again in a minute").
 - Borrowed pieces are not in the photo. To render them later, the job

@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useState } from 'react'
+import type { Category } from '../types'
 import { supabase } from './supabase'
 import { signPaths } from './friends'
 
@@ -15,8 +16,26 @@ export const PHOTO_BUCKET = 'photoreal'
 export const STUDIO_OFFLINE = 'Studio is offline, your photo will arrive later.'
 /** The worker heartbeats into studio_status; older than this means the Mac is asleep or off. */
 const STUDIO_STALE_MS = 10 * 60_000
-/** photo_jobs.item_ids takes 1 to 6 pieces. */
-export const MAX_PHOTO_PIECES = 6
+/** photo_jobs.item_ids takes 1 to 5 pieces: her photo plus 5 garments is what the studio draws in one pass. */
+export const MAX_PHOTO_PIECES = 5
+/**
+ * The studio's reference order, which is also what it keeps when a look has
+ * more pieces than a photo holds (CATEGORY_ORDER in the worker's
+ * studio/prompts.py). Pieces go out in this order and are cut after
+ * MAX_PHOTO_PIECES, so a hat or bag picked first never pushes the shoes or
+ * the jacket out of the photo.
+ */
+export const PHOTO_ORDER: readonly Category[] = ['top', 'bottom', 'dress', 'outerwear', 'shoes', 'hat', 'scarf', 'bag', 'accessory']
+
+/** A piece for a photo: its id, and its category for the studio's order. */
+export interface PhotoPiece { id: string; category: Category }
+
+/** The item ids a photo of these pieces asks for: each once, in PHOTO_ORDER (pick order within a category), at most MAX_PHOTO_PIECES. */
+export function photoItemIds(pieces: PhotoPiece[]): string[] {
+  const rank = (c: Category) => { const i = PHOTO_ORDER.indexOf(c); return i < 0 ? PHOTO_ORDER.length : i }
+  const unique = [...new Map(pieces.map((p) => [p.id, p])).values()]
+  return unique.sort((a, b) => rank(a.category) - rank(b.category)).slice(0, MAX_PHOTO_PIECES).map((p) => p.id)
+}
 
 export type PhotoStatus = 'queued' | 'rendering' | 'review' | 'done' | 'failed' | 'rejected'
 export type PhotoKind = 'dressme' | 'entry'
@@ -59,8 +78,8 @@ export function usePhotoAllowed() {
 }
 
 /** Ask the studio for a photo. Dress me: pieces from her own closet. Entry: her own pieces in that runway look. */
-export async function queuePhoto(kind: PhotoKind, itemIds: string[], entryId?: string): Promise<PhotoJob> {
-  const item_ids = [...new Set(itemIds)].slice(0, MAX_PHOTO_PIECES)
+export async function queuePhoto(kind: PhotoKind, pieces: PhotoPiece[], entryId?: string): Promise<PhotoJob> {
+  const item_ids = photoItemIds(pieces)
   if (!item_ids.length) throw new Error('Put something on first.')
   const { data, error } = await supabase.from('photo_jobs')
     .insert({ kind, item_ids, ...(kind === 'entry' ? { entry_id: entryId } : {}) })
@@ -76,8 +95,9 @@ export async function queuePhoto(kind: PhotoKind, itemIds: string[], entryId?: s
  * friend's piece never goes onto her photo (her account can swap the image
  * behind it after the borrow was approved), it stays a cutout card beside it.
  */
-export function queueEntryPhoto(entryId: string, itemIds: string[], borrowed: string[] = []) {
-  const own = ownPieces(itemIds, borrowed)
+export function queueEntryPhoto(entryId: string, pieces: PhotoPiece[], borrowed: string[] = []) {
+  const lent = new Set(borrowed)
+  const own = pieces.filter((p) => !lent.has(p.id))
   if (!own.length) return
   photoAllowed()
     .then((ok) => (ok ? queuePhoto('entry', own, entryId) : undefined))

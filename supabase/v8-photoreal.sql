@@ -49,11 +49,15 @@
 --                  of her photos, and the worker checks the same row
 --                  before it renders.
 --   photo_jobs     one row per requested photo. The app inserts kind,
---                  entry_id, item_ids (round_id is copied from the entry);
---                  item_ids are always the player's own pieces, for both
+--                  entry_id, item_ids (round_id is copied from the entry).
+--                  item_ids: 1 to 5 of the player's own pieces, for both
 --                  kinds (a borrowed piece in a runway look stays a cutout
---                  card beside the photo, never on her);
---                  a trigger forces everything else. The worker (service
+--                  card beside the photo, never on her), in the studio's
+--                  category order (top, bottom, dress, outerwear, shoes,
+--                  hat, scarf, bag, accessory) and cut after 5: her photo
+--                  plus 5 garments is what the studio draws in one pass,
+--                  and a hat picked first never pushes the shoes out.
+--                  A trigger forces everything else. The worker (service
 --                  role) moves status queued > rendering > review > done
 --                  (or failed / rejected), uploads to
 --                  photoreal/<user_id>/<job_id>.jpg and sets result_path.
@@ -93,7 +97,7 @@ create table if not exists photo_jobs (
   kind text not null check (kind in ('dressme','entry')),
   entry_id uuid references entries(id) on delete cascade,
   round_id uuid,
-  item_ids uuid[] not null check (cardinality(item_ids) between 1 and 6),
+  item_ids uuid[] not null check (cardinality(item_ids) between 1 and 5),
   status text not null default 'queued'
     check (status in ('queued','rendering','review','done','failed','rejected')),
   result_path text,
@@ -110,6 +114,19 @@ create index if not exists photo_jobs_user on photo_jobs (user_id, created_at de
 create index if not exists photo_jobs_entry on photo_jobs (entry_id, created_at desc);
 create index if not exists photo_jobs_result on photo_jobs (result_path);
 alter table photo_jobs enable row level security;
+-- 1 to 5 pieces (an earlier paste of this file allowed 6). Swapped in place
+-- so a re-run keeps it. Unfinished 6-piece jobs from that paste fail first,
+-- since the worker could not move them along under the new check; finished
+-- ones stay as they were.
+update photo_jobs set status = 'failed', error = 'too many pieces', finished_at = now()
+  where cardinality(item_ids) > 5 and status in ('queued','rendering','review');
+alter table photo_jobs drop constraint if exists photo_jobs_item_ids_check;
+alter table photo_jobs add constraint photo_jobs_item_ids_check
+  check (cardinality(item_ids) between 1 and 5) not valid;
+do $$ begin
+  alter table photo_jobs validate constraint photo_jobs_item_ids_check;
+exception when check_violation then null; -- a finished 6-piece job is left alone; new rows are still checked
+end $$;
 
 -- A new job always starts clean, whatever the phone sent. Runs as the
 -- table owner so it can read entries/items past RLS.
@@ -178,7 +195,7 @@ create trigger photo_jobs_supersede after insert on photo_jobs
 
 -- The photo of a runway look as it stands: the newest done job for that
 -- entry whose pieces are all still in the look and that covers as much of
--- it as one photo holds (every one of her own pieces in it, or 6 when
+-- it as one photo holds (every one of her own pieces in it, or 5 when
 -- there are more; borrowed pieces never go in the photo). A render of a
 -- look she has since changed never stands in for the current one, whether
 -- the newer job is still waiting, failed, was rejected, or was never
@@ -198,7 +215,7 @@ language sql stable security definer set search_path = public as $$
   where en.id = e and j.kind = 'entry' and j.status = 'done'
     and exists (select 1 from photoreal_children c where c.user_id = en.user_id)
     and j.item_ids <@ look.ids
-    and cardinality(j.item_ids) = least(6, cardinality(look.ids))
+    and cardinality(j.item_ids) = least(5, cardinality(look.ids))
   order by j.created_at desc, j.id desc
   limit 1
 $$;

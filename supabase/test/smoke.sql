@@ -39,14 +39,18 @@ do $$ declare g uuid := current_setting('smoke.g')::uuid; begin
   end;
 end $$;
 
--- One closet piece each (photo paths are only text here), plus a second
--- piece of a's that she puts on later (v8: a changed look). Colours and a
--- pattern on a's piece, and avatar presets for a, so the v4b avatar cards
--- have something to carry.
+-- One closet piece each (photo paths are only text here), plus five more
+-- of a's that she puts on later (v8: a changed look, and a look with more
+-- pieces than a photo holds). Colours and a pattern on a's piece, and
+-- avatar presets for a, so the v4b avatar cards have something to carry.
 insert into items (id, user_id, name, category, photo_path, cutout_path, colours, pattern) values
   ('10000000-0000-0000-0000-00000000000a', '00000000-0000-0000-0000-00000000000a', 'a top', 'top', 'a/p.jpg', 'a/c.png', '{red,black}', 'stripe'),
   ('10000000-0000-0000-0000-00000000000b', '00000000-0000-0000-0000-00000000000b', 'b top', 'top', 'b/p.jpg', 'b/c.png', '{blue}', 'solid'),
-  ('10000000-0000-0000-0000-0000000000a2', '00000000-0000-0000-0000-00000000000a', 'a skirt', 'bottom', 'a/p2.jpg', 'a/c2.png', '{denim}', 'solid')
+  ('10000000-0000-0000-0000-0000000000a2', '00000000-0000-0000-0000-00000000000a', 'a skirt', 'bottom', 'a/p2.jpg', 'a/c2.png', '{denim}', 'solid'),
+  ('10000000-0000-0000-0000-0000000000a3', '00000000-0000-0000-0000-00000000000a', 'a shoes', 'shoes', 'a/p3.jpg', 'a/c3.png', '{white}', 'solid'),
+  ('10000000-0000-0000-0000-0000000000a4', '00000000-0000-0000-0000-00000000000a', 'a jacket', 'outerwear', 'a/p4.jpg', 'a/c4.png', '{green}', 'solid'),
+  ('10000000-0000-0000-0000-0000000000a5', '00000000-0000-0000-0000-00000000000a', 'a hat', 'hat', 'a/p5.jpg', 'a/c5.png', '{black}', 'solid'),
+  ('10000000-0000-0000-0000-0000000000a6', '00000000-0000-0000-0000-00000000000a', 'a bag', 'bag', 'a/p6.jpg', 'a/c6.png', '{tan}', 'solid')
 on conflict do nothing;
 insert into avatar_presets (user_id, face, skin, hair, hair_colour, eyes) values
   ('00000000-0000-0000-0000-00000000000a', 'sunny', 'tan', 'bob', 'pink', 'green')
@@ -387,6 +391,34 @@ do $$ begin
 end $$;
 reset role;
 insert into photoreal_children (user_id, approved_by) values ('00000000-0000-0000-0000-00000000000a', 'smoke: a''s parent') on conflict do nothing;
+
+-- A photo holds her and 5 pieces. Six in one job is refused; a 6-piece look shows a photo of 5 of them.
+update entries set outfit = '{"items":["10000000-0000-0000-0000-0000000000a5","10000000-0000-0000-0000-0000000000a6","10000000-0000-0000-0000-00000000000a","10000000-0000-0000-0000-0000000000a2","10000000-0000-0000-0000-0000000000a3","10000000-0000-0000-0000-0000000000a4"],"borrowed":[]}'
+  where id = current_setting('smoke.ea')::uuid;
+select pg_temp.act_as('a');
+set role authenticated;
+do $$ declare ea uuid := current_setting('smoke.ea')::uuid; begin
+  begin
+    insert into photo_jobs (kind, entry_id, item_ids) values ('entry', ea, '{10000000-0000-0000-0000-0000000000a5,10000000-0000-0000-0000-0000000000a6,10000000-0000-0000-0000-00000000000a,10000000-0000-0000-0000-0000000000a2,10000000-0000-0000-0000-0000000000a3,10000000-0000-0000-0000-0000000000a4}');
+    raise exception 'v8: a 6-piece photo job was accepted';
+  exception when check_violation then null;
+  end;
+  -- what the app sends: top, bottom, jacket, shoes, hat (studio order, cut at 5; the bag stays a cutout card)
+  insert into photo_jobs (kind, entry_id, item_ids) values ('entry', ea, '{10000000-0000-0000-0000-00000000000a,10000000-0000-0000-0000-0000000000a2,10000000-0000-0000-0000-0000000000a4,10000000-0000-0000-0000-0000000000a3,10000000-0000-0000-0000-0000000000a5}');
+end $$;
+reset role;
+update photo_jobs set status = 'done', result_path = user_id::text || '/' || id::text || '.jpg', finished_at = now()
+  where entry_id = current_setting('smoke.ea')::uuid and status = 'queued';
+select set_config('smoke.jpath5', (select result_path from photo_jobs where entry_id = current_setting('smoke.ea')::uuid and status = 'done' order by created_at desc limit 1), false);
+select pg_temp.act_as('b');
+set role authenticated;
+do $$ declare r uuid := current_setting('smoke.r')::uuid; begin
+  assert (select photo_path from round_entry_cards_v2(r) where user_id = '00000000-0000-0000-0000-00000000000a') = current_setting('smoke.jpath5'), 'v8: a 6-piece look shows its 5-piece photo';
+  assert can_see_photo(current_setting('smoke.jpath5')), 'v8: b opens the 5-piece photo';
+end $$;
+reset role;
+update entries set outfit = '{"items":["10000000-0000-0000-0000-00000000000a","10000000-0000-0000-0000-0000000000a2"],"borrowed":[]}'
+  where id = current_setting('smoke.ea')::uuid;
 
 -- Votes. a: self-vote must be rejected by RLS, vote on b's look allowed.
 select pg_temp.act_as('a');

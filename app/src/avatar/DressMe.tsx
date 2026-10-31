@@ -72,7 +72,8 @@ export default function DressMe({ onClose }: { onClose: () => void }) {
   async function askForPhoto() {
     if (!allowed || !wornIds.length || asking) return
     setAsking(true); setPhotoErr(undefined)
-    try { photos.add(await queuePhoto('dressme', wornIds)) } catch (x) { setPhotoErr((x as Error).message) } finally { setAsking(false) }
+    const pieces = wornItems.map(({ item }) => ({ id: item!.id, category: item!.category }))
+    try { photos.add(await queuePhoto('dressme', pieces)) } catch (x) { setPhotoErr((x as Error).message) } finally { setAsking(false) }
   }
 
   const counts = Object.fromEntries(OUTFIT_SLOTS.map((s) => [s, items.filter((i) => i.category === SLOT_CATEGORY[s]).length])) as Record<OutfitSlot, number>
