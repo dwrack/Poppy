@@ -96,6 +96,100 @@ do $$ declare r uuid := current_setting('smoke.r')::uuid; begin
 end $$;
 reset role;
 
+-- v8 photo-real jobs, while the round is still open.
+select set_config('smoke.eb0', (select id::text from entries where round_id = current_setting('smoke.r')::uuid and user_id = '00000000-0000-0000-0000-00000000000b'), false);
+select pg_temp.act_as('a');
+set role authenticated;
+do $$ declare j1 uuid; j2 uuid; je uuid; ea uuid; r uuid := current_setting('smoke.r')::uuid; begin
+  -- a phone that sends worker fields gets them overwritten
+  insert into photo_jobs (kind, item_ids, status, result_path, attempts, worker, error, user_id)
+    values ('dressme', '{10000000-0000-0000-0000-00000000000a}', 'done', 'x/forged.jpg', 9, 'phone', 'none', '00000000-0000-0000-0000-00000000000b')
+    returning id into j1;
+  assert (select status from photo_jobs where id = j1) = 'queued', 'v8: status forced to queued';
+  assert (select attempts = 0 and result_path is null and worker is null and error is null from photo_jobs where id = j1), 'v8: worker fields forced clean';
+  assert (select user_id from photo_jobs where id = j1) = auth.uid(), 'v8: user_id forced to the caller';
+  -- a second Dress me photo supersedes the first
+  insert into photo_jobs (kind, item_ids) values ('dressme', '{10000000-0000-0000-0000-00000000000a}') returning id into j2;
+  assert (select status from photo_jobs where id = j1) = 'rejected' and (select error from photo_jobs where id = j1) = 'superseded', 'v8: second dressme supersedes the first';
+  assert (select status from photo_jobs where id = j2) = 'queued', 'v8: newest dressme stays queued';
+  perform set_config('smoke.j2', j2::text, false);
+  begin
+    insert into photo_jobs (kind, item_ids) values ('dressme', '{10000000-0000-0000-0000-00000000000b}');
+    raise exception 'v8: dressme with a friend''s piece was accepted';
+  exception when raise_exception then
+    if sqlerrm not like 'Some pieces%' then raise; end if;
+  end;
+  -- phones never move a job along or remove one
+  begin
+    update photo_jobs set status = 'done' where id = j2;
+    raise exception 'v8: client update of a photo job was accepted';
+  exception when insufficient_privilege then null;
+  end;
+  begin
+    delete from photo_jobs where id = j2;
+    raise exception 'v8: client delete of a photo job was accepted';
+  exception when insufficient_privilege then null;
+  end;
+  assert (select status from photo_jobs where id = j2) = 'queued', 'v8: status untouched by the client';
+  -- her runway look: the round comes from the entry, whatever the phone said
+  select id into ea from entries where round_id = r and user_id = auth.uid();
+  insert into photo_jobs (kind, entry_id, round_id, item_ids) values ('entry', ea, gen_random_uuid(), '{10000000-0000-0000-0000-00000000000a}') returning id into je;
+  assert (select round_id from photo_jobs where id = je) = r, 'v8: entry job round copied from the entry';
+  perform set_config('smoke.je', je::text, false);
+  begin
+    insert into photo_jobs (kind, entry_id, item_ids) values ('entry', current_setting('smoke.eb0')::uuid, '{10000000-0000-0000-0000-00000000000b}');
+    raise exception 'v8: entry job on someone else''s look was accepted';
+  exception when raise_exception then
+    if sqlerrm not like 'That runway look is not yours%' then raise; end if;
+  end;
+  begin
+    insert into photo_jobs (kind, entry_id, item_ids) values ('entry', ea, '{10000000-0000-0000-0000-00000000000b}');
+    raise exception 'v8: entry job with a piece outside the look was accepted';
+  exception when raise_exception then
+    if sqlerrm not like 'Those pieces are not in that look%' then raise; end if;
+  end;
+  -- the studio heartbeat is read-only, and phones cannot write renders
+  assert (select count(*) from studio_status) = 0, 'v8: studio_status readable (empty until the worker checks in)';
+  begin
+    insert into studio_status (id, last_seen_at) values (1, now());
+    raise exception 'v8: client wrote the studio heartbeat';
+  exception when insufficient_privilege then null;
+  end;
+  begin
+    insert into storage.objects (bucket_id, name) values ('photoreal', auth.uid()::text || '/fake.jpg');
+    raise exception 'v8: client uploaded to photoreal';
+  exception when insufficient_privilege then null;
+  end;
+end $$;
+reset role;
+
+-- The worker (service role) finishes both photos and uploads them.
+update photo_jobs set status = 'done', result_path = user_id::text || '/' || id::text || '.jpg', finished_at = now(), worker = 'smoke'
+  where id in (current_setting('smoke.je')::uuid, current_setting('smoke.j2')::uuid);
+update entries set photo_job_id = current_setting('smoke.je')::uuid where id = (select entry_id from photo_jobs where id = current_setting('smoke.je')::uuid);
+insert into storage.objects (bucket_id, name) select 'photoreal', result_path from photo_jobs where id in (current_setting('smoke.je')::uuid, current_setting('smoke.j2')::uuid);
+select set_config('smoke.jpath', (select result_path from photo_jobs where id = current_setting('smoke.je')::uuid), false);
+select set_config('smoke.dpath', (select result_path from photo_jobs where id = current_setting('smoke.j2')::uuid), false);
+do $$ begin assert (select public from storage.buckets where id = 'photoreal') = false, 'v8: photoreal bucket is private'; end $$;
+
+-- Before the reveal a squad mate sees none of it; the owner sees her own.
+select pg_temp.act_as('b');
+set role authenticated;
+do $$ begin
+  assert (select count(*) from photo_jobs) = 0, 'v8: before the reveal b sees none of a''s photo jobs';
+  assert not can_see_photo(current_setting('smoke.jpath')), 'v8: before the reveal b cannot open a''s runway photo';
+  assert (select count(*) from storage.objects where bucket_id = 'photoreal') = 0, 'v8: before the reveal b reads no photoreal files';
+end $$;
+reset role;
+select pg_temp.act_as('a');
+set role authenticated;
+do $$ declare r uuid := current_setting('smoke.r')::uuid; begin
+  assert (select count(*) from photo_jobs) = 3, 'v8: a sees all three of her jobs';
+  assert (select count(*) from storage.objects where bucket_id = 'photoreal') = 2, 'v8: a reads her own photoreal files';
+  assert (select photo_path from round_entry_cards_v2(r) where user_id = auth.uid()) = current_setting('smoke.jpath'), 'v8: own card carries her photo before the reveal';
+end $$;
+reset role;
+
 -- Fast-forward: looks lock, runway plays (reveal).
 update rounds set closes_at = now(), reveal_at = now(), voting_ends_at = now() + interval '12 hours'
   where id = current_setting('smoke.r')::uuid;
@@ -103,6 +197,42 @@ select advance_rounds();
 do $$ begin assert (select status from rounds where id = current_setting('smoke.r')::uuid) = 'reveal', 'round should be in reveal'; end $$;
 select set_config('smoke.ea', (select id::text from entries where round_id = current_setting('smoke.r')::uuid and user_id = '00000000-0000-0000-0000-00000000000a'), false);
 select set_config('smoke.eb', (select id::text from entries where round_id = current_setting('smoke.r')::uuid and user_id = '00000000-0000-0000-0000-00000000000b'), false);
+
+-- v8: from the reveal on, a squad mate sees the runway photo (never the Dress me one); an outsider never does.
+select pg_temp.act_as('b');
+set role authenticated;
+do $$ declare r uuid := current_setting('smoke.r')::uuid; begin
+  assert (select count(*) from photo_jobs) = 1 and (select id from photo_jobs) = current_setting('smoke.je')::uuid, 'v8: after the reveal b sees only a''s done runway job';
+  assert can_see_photo(current_setting('smoke.jpath')), 'v8: after the reveal b can open a''s runway photo';
+  assert not can_see_photo(current_setting('smoke.dpath')), 'v8: b never opens a''s Dress me photo';
+  assert (select count(*) from storage.objects where bucket_id = 'photoreal') = 1, 'v8: b reads exactly the runway photo file';
+  assert (select photo_path from round_entry_cards_v2(r) where user_id = '00000000-0000-0000-0000-00000000000a') = current_setting('smoke.jpath'), 'v8: v2 card carries a''s photo_path';
+  assert (select photo_path from round_entry_cards_v2(r) where user_id = auth.uid()) is null, 'v8: no photo, no photo_path';
+end $$;
+reset role;
+select pg_temp.act_as('c');
+set role authenticated;
+do $$ begin
+  assert (select count(*) from photo_jobs) = 0, 'v8: outsider sees no photo jobs';
+  assert not can_see_photo(current_setting('smoke.jpath')), 'v8: outsider cannot open the runway photo';
+  assert (select count(*) from storage.objects where bucket_id = 'photoreal') = 0, 'v8: outsider reads no photoreal files';
+end $$;
+reset role;
+-- A newer request for the same look hides the old photo until it is done (it would show the wrong outfit).
+select pg_temp.act_as('a');
+set role authenticated;
+do $$ declare r uuid := current_setting('smoke.r')::uuid; ea uuid := current_setting('smoke.ea')::uuid; begin
+  insert into photo_jobs (kind, entry_id, item_ids) values ('entry', ea, '{10000000-0000-0000-0000-00000000000a}');
+  assert (select photo_path from round_entry_cards_v2(r) where user_id = auth.uid()) is null, 'v8: newest job not done yet, so no photo';
+end $$;
+reset role;
+update photo_jobs set status = 'done', result_path = user_id::text || '/' || id::text || '.jpg', finished_at = now()
+  where entry_id = current_setting('smoke.ea')::uuid and status = 'queued';
+do $$ declare r uuid := current_setting('smoke.r')::uuid; begin
+  perform set_config('request.jwt.claim.sub', '00000000-0000-0000-0000-00000000000b', false);
+  assert (select photo_path from round_entry_cards_v2(r) where user_id = '00000000-0000-0000-0000-00000000000a')
+       = (select result_path from photo_jobs where entry_id = current_setting('smoke.ea')::uuid order by created_at desc limit 1), 'v8: the newest done photo wins';
+end $$;
 
 -- Votes. a: self-vote must be rejected by RLS, vote on b's look allowed.
 select pg_temp.act_as('a');

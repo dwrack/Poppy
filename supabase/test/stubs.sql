@@ -26,6 +26,10 @@ create table if not exists storage.objects(id uuid primary key default gen_rando
 alter table storage.objects enable row level security;
 create or replace function storage.foldername(name text) returns text[] language sql immutable as $$
   select (string_to_array(name, '/'))[1:array_length(string_to_array(name, '/'), 1) - 1] $$;
+-- Supabase lets signed-in clients reach storage tables; RLS decides the rows.
+grant usage on schema storage to anon, authenticated, service_role;
+grant select on storage.buckets to anon, authenticated, service_role;
+grant select, insert, update, delete on storage.objects to anon, authenticated, service_role;
 -- cron
 create schema if not exists cron;
 create or replace function cron.schedule(text, text, text) returns bigint language sql as $$ select 1::bigint $$;
