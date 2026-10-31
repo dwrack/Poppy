@@ -2,11 +2,13 @@ import { useLiveQuery } from 'dexie-react-hooks'
 import { useMemo, useState } from 'react'
 import { db } from '../db'
 import { presetsToLook } from '../lib/avatarSync'
+import { queuePhoto, sameLook, usePhotoUrl, useMyPhotoJobs, useStudio } from '../lib/photos'
 import { useObjectUrl } from '../lib/useObjectUrl'
 import {
   garmentOf, OUTFIT_SLOTS, SLOT_CATEGORY, SLOT_LABEL, slotOf, type Item, type Outfit, type OutfitSlot,
 } from '../types'
 import { Chip } from '../components/Chip'
+import { PhotoChip } from '../components/PhotoChip'
 import AvatarScene from './AvatarScene'
 import { MOVE_LABEL, MOVES, type UiMove } from './anim'
 
@@ -28,6 +30,13 @@ export default function DressMe({ onClose }: { onClose: () => void }) {
   const [move, setMove] = useState<UiMove>('idle')
   const [ready, setReady] = useState(false)
   const [failed, setFailed] = useState(false)
+  // Photo-real (BRIEF-v4): ask the studio Mac for a photo of her in this look; it lands here a minute or two later.
+  const photos = useMyPhotoJobs('dressme')
+  const { online } = useStudio()
+  const [asking, setAsking] = useState(false)
+  const [photoErr, setPhotoErr] = useState<string>()
+  // which view each finished photo is on; a newly finished photo opens on the photo
+  const [view, setView] = useState<{ job: string; photo: boolean }>()
 
   const byId = useMemo(() => new Map(items.map((i) => [i.id, i])), [items])
   const outfit = useMemo<Outfit>(() => {
@@ -52,6 +61,18 @@ export default function DressMe({ onClose }: { onClose: () => void }) {
 
   const inSlot = items.filter((i) => i.category === SLOT_CATEGORY[slot])
   const wornItems = OUTFIT_SLOTS.map((s) => ({ slot: s, item: worn[s] ? byId.get(worn[s]!) : undefined })).filter((x) => x.item)
+  const wornIds = wornItems.map((w) => w.item!.id)
+  const job = photos.latest
+  const photoUrl = usePhotoUrl(job?.status === 'done' ? job.result_path : null)
+  const showPhoto = !!photoUrl && (view && view.job === job?.id ? view.photo : true)
+  const earlier = !!job && wornIds.length > 0 && !sameLook(job.item_ids, wornIds)
+
+  async function askForPhoto() {
+    if (!wornIds.length || asking) return
+    setAsking(true); setPhotoErr(undefined)
+    try { photos.add(await queuePhoto('dressme', wornIds)) } catch (x) { setPhotoErr((x as Error).message) } finally { setAsking(false) }
+  }
+
   const counts = Object.fromEntries(OUTFIT_SLOTS.map((s) => [s, items.filter((i) => i.category === SLOT_CATEGORY[s]).length])) as Record<OutfitSlot, number>
 
   return (
@@ -75,8 +96,23 @@ export default function DressMe({ onClose }: { onClose: () => void }) {
           </div>
         )}
         <p className="pointer-events-none absolute bottom-2 left-0 right-0 text-center text-[11px] font-semibold text-mute">drag to spin her</p>
+        {/* the studio's photo sits over her when it is in; she stays loaded behind it for the toggle */}
+        {showPhoto && <img src={photoUrl} alt="You in this look" className="absolute inset-0 z-10 h-full w-full object-cover" data-testid="photo-real" />}
+        {photoUrl && (
+          <div className="absolute top-2 left-2 z-20 flex rounded-full bg-white/90 p-0.5 text-[11px] font-bold shadow ring-1 ring-black/10" data-testid="photo-toggle">
+            <button onClick={() => job && setView({ job: job.id, photo: false })} className={'rounded-full px-2.5 py-1 ' + (!showPhoto ? 'bg-ink text-white' : '')}>🧍 3D</button>
+            <button onClick={() => job && setView({ job: job.id, photo: true })} className={'rounded-full px-2.5 py-1 ' + (showPhoto ? 'bg-ink text-white' : '')}>📸 Photo</button>
+          </div>
+        )}
+        <div className="absolute bottom-2 left-2 z-20 flex max-w-[70%] flex-col items-start gap-1">
+          <PhotoChip job={job} online={online} note={earlier ? 'earlier look' : undefined} />
+          {photoErr && <p className="rounded-lg bg-white/90 px-2 py-1 text-[11px] font-semibold text-poppy">{photoErr}</p>}
+          <button onClick={askForPhoto} disabled={!wornIds.length || asking} className="rounded-full bg-poppy px-3 py-1.5 text-xs font-bold text-white shadow-md shadow-poppy/30 disabled:opacity-40" data-testid="photo-button">
+            {asking ? '…' : '📸 Photo'}
+          </button>
+        </div>
         {/* the real pieces, as cards beside her */}
-        <div className="absolute top-2 right-2 flex flex-col gap-1.5">
+        <div className="absolute top-2 right-2 z-20 flex flex-col gap-1.5">
           {wornItems.map(({ slot: s, item }) => <WornCard key={s} slot={s} item={item!} onRemove={() => toggle(item!)} />)}
         </div>
       </div>
