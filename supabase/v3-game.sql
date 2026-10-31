@@ -2,6 +2,8 @@
 -- Adds to v2-friends.sql. Safe to run more than once. Nothing in version 1
 -- or in the friends tables is changed, except one new nullable column
 -- (groups.tz) so each squad gets its Friday 5pm in its own time zone.
+-- If you re-run it after v6/v7 are in, paste v6 and v7 again afterwards
+-- (this file carries the older round_entry_cards and clock).
 --
 -- =====================================================================
 -- HOW TO TURN IT ON (David, about 3 minutes, in the Supabase dashboard
@@ -324,6 +326,9 @@ $$;
 
 -- Entries with their pieces, for the runway. Before the reveal you only
 -- get your own. Pieces must belong to someone in the squad.
+-- Dropped first because v6 widens this function's row type (adds
+-- styled_by), and create or replace cannot change a return type.
+drop function if exists round_entry_cards(uuid);
 create or replace function round_entry_cards(r uuid)
 returns table (entry_id uuid, user_id uuid, display_name text, emoji text, outfit jsonb,
                photo_path text, submitted_at timestamptz, pieces jsonb)
