@@ -65,16 +65,26 @@ export function pushPending() {
  * from the signed-in account's own database and goes up under its own id; if
  * the account changes part way, the loop stops and the rest waits for its owner.
  */
+/** Same person still signed in, and their database still bound. */
+async function stillOwner(userId: string, local: PoppyDb) {
+  if (!stillBound(local)) return false
+  const { data } = await supabase.auth.getSession()
+  return data.session?.user.id === userId && stillBound(local)
+}
+
 async function doPush() {
   const me = await signedInDb()
   if (!me) return
   const { userId, db: local } = me
 
   for (const { id } of await local.tombstones.toArray()) {
-    if (!stillBound(local)) return
+    if (!(await stillOwner(userId, local))) return
     const p = paths(userId, id)
     await supabase.storage.from(BUCKET).remove([p.photo, p.cutout])
     const { error } = await supabase.from('items').delete().eq('id', id).eq('user_id', userId)
+    // A delete sent after a sign-out goes out as nobody: RLS matches 0 rows and reports no
+    // error. Only drop the tombstone if the same person is still signed in afterwards.
+    if (!(await stillOwner(userId, local))) return
     if (!error) await local.tombstones.delete(id)
   }
 
@@ -89,6 +99,7 @@ async function doPush() {
     if (a.error || b.error) { console.warn('upload failed', a.error ?? b.error); continue }
     const { error } = await supabase.from('items').upsert({ ...toRow(item, userId), user_id: userId })
     if (error) { console.warn('row upsert failed', error); continue }
+    if (!(await stillOwner(userId, local))) return
     await local.items.update(item.id, { synced: 1 })
   }
 }

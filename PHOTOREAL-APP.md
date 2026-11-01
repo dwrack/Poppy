@@ -95,7 +95,7 @@ trick in AVATAR-STEP2.md).
   renders, the same row the insert trigger checks.
 - Garment cutouts: `items.cutout_path` / `items.photo_path` in the
   `closet` bucket.
-- Worker auth: service role key in `~/.config/poppy/service_key` only.
+- Worker auth: service role key in the MacBook's login Keychain only (service `poppy-studio`, set with `~/Projects/poppy-photoreal/set-service-key.command`). Never a file under `~/.config`: mac-sync copies those to the other Macs.
 
 ## What to test
 

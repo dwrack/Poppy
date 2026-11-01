@@ -1,6 +1,6 @@
 import Dexie from 'dexie'
 import { useEffect, useState } from 'react'
-import { LEGACY_DB, bindDb, db, dbNameFor, dbOwner, openDb, type PoppyDb } from '../db'
+import { LEGACY_DB, bindDb, db, dbNameFor, dbOwner, openDb, unbindDb, type PoppyDb } from '../db'
 import type { AvatarPresets, Item, Measurement, Profile } from '../types'
 import { supabase } from './supabase'
 
@@ -33,6 +33,16 @@ export function stillBound(local: PoppyDb) {
 }
 
 let binding: { userId: string; done: Promise<void> } | null = null
+
+// One app-wide listener: when the signed-in person signs out or changes, unbind
+// at once, so a sync loop holding the old database stops (stillBound) and no
+// request after the switch can be counted as the old account's.
+supabase.auth.onAuthStateChange((_event, session) => {
+  const uid = session?.user.id ?? null
+  if (uid === dbOwner()) return
+  if (binding && binding.userId !== uid) binding = null
+  if (dbOwner() !== null) unbindDb()
+})
 
 /** Open this account's database (claiming the pre-v4 shared one if it is theirs) and make it `db`. */
 export function bindAccount(userId: string): Promise<void> {
@@ -128,19 +138,24 @@ async function belongsTo(userId: string, d: LegacyData): Promise<'yes' | 'no' | 
   return asked ? 'no' : 'unsure'
 }
 
-/** Merge the old rows in. A row the account already has is kept unless the old one has unsynced changes. */
+/** Merge the old rows in. A row the account already has is kept unless the old copy is newer
+ * (a later reload can claim the old database after the account has moved on). */
 async function copyInto(target: PoppyDb, d: LegacyData) {
   await target.transaction('rw', [target.items, target.tombstones, target.profile, target.measurements, target.avatar], async () => {
-    for (const it of d.items) if (it.synced === 0 || !(await target.items.get(it.id))) await target.items.put(it)
+    for (const it of d.items) {
+      // The account's own copy wins unless the old one has unsynced changes that are newer.
+      const cur = await target.items.get(it.id)
+      if (!cur || (it.synced === 0 && it.updatedAt > cur.updatedAt)) await target.items.put(it)
+    }
     if (d.tombstones.length) await target.tombstones.bulkPut(d.tombstones)
     for (const m of d.measurements) if (m.synced === 0 || !(await target.measurements.get(m.id))) await target.measurements.put(m)
     for (const p of d.profile) {
       const cur = await target.profile.get(p.id)
-      if (!cur || p.synced === 0 || p.updatedAt > cur.updatedAt) await target.profile.put(p)
+      if (!cur || p.updatedAt > cur.updatedAt) await target.profile.put(p)
     }
     for (const a of d.avatar) {
       const cur = await target.avatar.get(a.id)
-      if (!cur || a.synced === 0 || a.updatedAt > cur.updatedAt) await target.avatar.put(a)
+      if (!cur || a.updatedAt > cur.updatedAt) await target.avatar.put(a)
     }
   })
 }

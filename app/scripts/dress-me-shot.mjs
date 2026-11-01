@@ -20,7 +20,7 @@ const PORT = Number(process.env.SHOT_PORT) || 4173
 
 const server = spawn('npx', ['vite', 'preview', '--port', String(PORT), '--strictPort'], { cwd: app, stdio: ['ignore', 'pipe', 'pipe'] })
 await new Promise((ok, bad) => {
-  const t = setTimeout(() => bad(new Error('preview did not start')), 20000)
+  const t = setTimeout(() => bad(new Error('preview did not start')), 60000)
   server.stdout.on('data', (d) => { if (String(d).includes('http')) { clearTimeout(t); ok() } })
   server.stderr.on('data', (d) => process.stderr.write(d))
 })

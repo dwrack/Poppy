@@ -4,7 +4,7 @@ Goal: Penny gets her own account with her own friends squad, and everyone shares
 
 ## 1. Put it live (once)
 - Tell Claude "ship the family branch". Claude merges it and the app updates in about 2 minutes.
-- Supabase dashboard (signed in with Poppy's Gmail) > SQL Editor > New query. Paste all of `supabase/v9-family.sql`, press Run. It should say "Success". This keeps each squad's stars and borrowing separate.
+- Supabase dashboard (signed in with Poppy's Gmail) > SQL Editor > New query. If v3 to v8 are not in yet, paste those first (order in `V3-PASTE-ORDER.md`). Then paste all of `supabase/v9-family.sql`, press Run. It should say "Success". This keeps each squad's stars and borrowing separate.
 
 ## 2. Poppy makes the family squad
 - Squad tab > scroll down > "Start another squad". Name it Rack Family, pick an icon, tap Create squad.
@@ -31,6 +31,21 @@ Goal: Penny gets her own account with her own friends squad, and everyone shares
 - Nothing one person adds ever uploads under the other's name. Pieces added offline wait for their owner to sign back in.
 
 ## 7. Photo-real looks
-- Penny's and Dad's base photos are already on the studio Mac.
-- After they sign up, tell Claude "link the family photo-real looks" and Claude connects the photos to their accounts.
-- Until then they walk the runway as their 3D avatar, which works fine.
+- Penny's and Dad's base photos are already on the studio Mac (`~/Projects/poppy-photoreal/private/refs/penny` and `.../david`). They never leave it.
+- Until the steps below are done they walk the runway as their 3D avatar, which works fine.
+- After both have signed up, in the Supabase SQL Editor: `select id, email from auth.users;` to find their ids, then switch photos on for each (Poppy too, if not done yet):
+
+      insert into photoreal_children (user_id, approved_by) values
+        ('<Poppy id>', 'David, her dad'),
+        ('<Penny id>', 'David, her dad'),
+        ('<Dad id>', 'David');
+      -- add "on conflict do nothing" if any row is already there
+
+- Then on the MacBook, in `~/Projects/poppy-photoreal`, link each base photo to its account (or tell Claude "link the family photo-real looks"):
+
+      .venv/bin/python tools/link_ref.py poppy <Poppy id>
+      .venv/bin/python tools/link_ref.py penny <Penny id>
+      .venv/bin/python tools/link_ref.py david <Dad id>
+
+- Check: `.venv/bin/python -m studio.cli status` lists all three ids with their person label.
+- Switch someone off: `delete from photoreal_children where user_id = '<id>';`. No new photos, and their runway photos come down for the squad.

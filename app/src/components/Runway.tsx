@@ -18,7 +18,7 @@ import { Chip as ChipButton } from './Chip'
 import { PhotoChip } from './PhotoChip'
 import { SeasonPodium } from './SeasonPodium'
 import { SeasonStrip } from './SeasonStrip'
-import { SquadSwitcher } from './SquadSwitcher'
+import { SquadSwitcher, SquadWaiting } from './SquadSwitcher'
 import { CardStack, LocalStack, type RemotePiece } from './Stack'
 import { StyledLooks } from './StyledLooks'
 import { ThemePick } from './ThemePick'
@@ -26,7 +26,7 @@ import { WoreIt } from './WoreIt'
 
 export function Runway({ userId, onAdd, onGoSquad }: { userId: string; onAdd: () => void; onGoSquad: () => void }) {
   const squad = useSquad(userId)
-  if (squad.loading) return <div className="p-8 text-center text-mute">Loading…</div>
+  if (squad.loading) return <SquadWaiting userId={userId} error={squad.error} retry={squad.refresh} />
   if (!squad.group) return <NoSquad onGoSquad={onGoSquad} />
   // Keyed by squad: switching squads starts the whole runway fresh (round, looks, votes, borrows, styled looks).
   return <SquadRunway key={squad.group.id} userId={userId} group={squad.group} members={squad.members} onAdd={onAdd} />

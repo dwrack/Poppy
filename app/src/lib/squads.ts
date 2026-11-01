@@ -17,6 +17,10 @@ export interface SquadsState {
   /** members of the active squad; empty until they are in (see membersFor) */
   members: Member[]
   membersFor?: string
+  /** the squad whose members failed to load (retried; the screens offer a retry too) */
+  membersErrorFor?: string
+  /** everyone in any of my squads: user id to the name they go by (first squad wins) */
+  allMates: Map<string, string>
   setActive: (groupId: string) => void
   refresh: () => Promise<void>
 }
@@ -32,7 +36,7 @@ export function writeActive(userId: string, groupId: string) {
   try { localStorage.setItem(activeKey(userId), groupId) } catch { /* private mode or storage off: it just won't be remembered */ }
 }
 
-const NONE: SquadsState = { userId: '', loading: true, squads: [], members: [], setActive: () => {}, refresh: async () => {} }
+const NONE: SquadsState = { userId: '', loading: true, squads: [], members: [], allMates: new Map(), setActive: () => {}, refresh: async () => {} }
 
 /** Every squad this account is in, the active one, and a way to switch. */
 export function useSquads(userId: string): SquadsState {
@@ -54,6 +58,8 @@ export function useSquad(userId: string) {
     loading: s.loading || (!!group && s.membersFor !== group.id),
     group,
     members: group && s.membersFor === group.id ? s.members : [],
+    /** this squad's members could not be loaded (yet): show the switcher and a retry, not a dead end */
+    error: !!group && s.membersFor !== group.id && s.membersErrorFor === group.id,
     refresh: s.refresh,
   }
 }

@@ -25,3 +25,21 @@ export function SquadSwitcher({ userId }: { userId: string }) {
     </div>
   )
 }
+
+/**
+ * While a squad's members load, or if they could not be loaded: the switcher stays,
+ * so a squad that will not load never traps anyone, plus a retry.
+ */
+export function SquadWaiting({ userId, error, retry }: { userId: string; error: boolean; retry: () => Promise<void> }) {
+  return (
+    <div className="safe-top px-4 pt-3">
+      <SquadSwitcher userId={userId} />
+      {error ? (
+        <div className="p-8 text-center">
+          <p className="text-mute">Couldn’t load this squad. Check the internet and try again.</p>
+          <button onClick={() => void retry()} className="mt-3 rounded-full bg-sage px-5 py-2 font-bold text-white">Try again</button>
+        </div>
+      ) : <div className="p-8 text-center text-mute">Loading…</div>}
+    </div>
+  )
+}

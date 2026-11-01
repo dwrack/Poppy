@@ -45,8 +45,16 @@ Shortcut to skip a wait, run in the SQL Editor: `update rounds set closes_at = n
 
 Bucket fallback: after the paste, Storage should list `photoreal` with a lock. If it is not there (some projects refuse the bucket insert from the SQL Editor), Storage > New bucket > name `photoreal`, Public bucket OFF > Create, then paste v8 once more so the read rules attach.
 
-Studio key, once, on the MacBook: Project Settings > API > service_role > Reveal > copy, then in Terminal `mkdir -p ~/.config/poppy && pbpaste > ~/.config/poppy/service_key && chmod 600 ~/.config/poppy/service_key`. That file is the only place it lives: not the app, not this repo, not a vault, not a chat. The app keeps its publishable key.
+Studio key, once, on the MacBook: Project Settings > API > service_role > Reveal > copy, then double-click `~/Projects/poppy-photoreal/set-service-key.command` and paste it at the hidden prompt. It goes into this Mac's login Keychain (service `poppy-studio`), never a file: mac-sync copies key files under `~/.config` to the other Macs. Not the app, not this repo, not a vault, not a chat. The app keeps its publishable key.
 
 Before the worker has ever checked in, Dress me and the "Your look is in" card say "Studio is offline, your photo will arrive later." and jobs wait in the queue. Check with `select * from studio_status;` (one row once the worker runs) and `select status, count(*) from photo_jobs group by 1;`.
 
 Photos are off for every child until her parent says yes. For Poppy, once, in the SQL Editor: `select id, email from auth.users;` to find her id, then `insert into photoreal_children (user_id, approved_by) values ('<her id>', 'David, her dad') on conflict do nothing;`. A friend gets a row only after her own parent has said yes and sent a reference photo. `delete from photoreal_children where user_id = '<her id>';` switches a child off again (no new photos, and her runway photos come down for the squad).
+
+## v4 family squads (paste after v8)
+
+8. `supabase/v9-family.sql`: per-squad ladder and borrowing for people in two squads (Penny in her friends' squad and Rack Family), wore-it photos visible to that squad only, and `leave_group()` so an owner who leaves hands the squad to the next member instead of orphaning it. LAST of all. Safe to re-run.
+
+Re-paste rule, whole chain: if you ever paste v2, v3, v5 or v6 again, paste v7 (unless it was only v2), then v8 if v4b was touched, then v9, in that order. Each later file carries the newer version of something an earlier one defines.
+
+Family setup steps (squad, sign-ups, photos): `FAMILY-SETUP.md`.

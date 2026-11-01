@@ -40,6 +40,12 @@
 --                      that round's squad.
 --   join_group()       a code for a squad you are already in says so and
 --                      stays unused (before: it was quietly used up).
+--   wore-it photos     the "I wore it" photo of a round is seen by that
+--                      round's squad only (before: by anyone sharing any
+--                      squad with you, who could list your wore/ folder).
+--   leave_group(g)     leaving a squad you started hands it to the member
+--                      who joined first, so the rest can still start a
+--                      round. Owners leave only through this function.
 
 -- Is this person in this squad? (security definer so policies never recurse)
 create or replace function in_squad(g uuid, u uuid) returns boolean
@@ -122,3 +128,50 @@ begin
   update invites set used_by = auth.uid(), used_at = now() where code = inv.code;
   return inv.group_id;
 end $$;
+
+
+-- Wore-it photos: the round's squad only ---------------------------------
+-- v2's closet rule lets anyone who shares ANY squad with you read your
+-- closet files, which is right for your clothes. The wore/ folder holds
+-- "I wore it" photos, which belong to one round of one squad: keep them to
+-- that squad, through the round_actions row that points at the file.
+drop policy if exists "group mates see closet files" on storage.objects;
+create policy "group mates see closet files" on storage.objects for select
+  using (bucket_id = 'closet' and is_group_mate(((storage.foldername(name))[1])::uuid)
+         and coalesce((storage.foldername(name))[2], '') <> 'wore');
+drop policy if exists "squad sees wore-it photos" on storage.objects;
+create policy "squad sees wore-it photos" on storage.objects for select
+  using (bucket_id = 'closet' and (storage.foldername(name))[2] = 'wore'
+         and exists (select 1 from round_actions a
+                     where a.photo_path = name and is_member(round_group(a.round_id))));
+
+-- Leaving a squad ----------------------------------------------------------
+-- The person who started a squad is its owner: only the owner can start an
+-- extra round or set its time zone. If the owner leaves, the member who
+-- joined first takes over. An empty squad is left as it is (nothing shows it).
+create or replace function leave_group(g uuid) returns void
+language plpgsql security definer set search_path = public as $$
+declare me uuid := auth.uid(); heir uuid;
+begin
+  perform 1 from groups where id = g for update;  -- one leave at a time per squad
+  if me is null or not exists (select 1 from group_members where group_id = g and user_id = me) then
+    raise exception 'You are not in that squad';
+  end if;
+  delete from group_members where group_id = g and user_id = me;
+  if exists (select 1 from groups where id = g and owner_id = me) then
+    select user_id into heir from group_members where group_id = g order by joined_at, user_id limit 1;
+    if heir is not null then
+      update groups set owner_id = heir where id = g;
+      update group_members set role = 'owner' where group_id = g and user_id = heir;
+    end if;
+  end if;
+end $$;
+revoke all on function leave_group(uuid) from public, anon;
+grant execute on function leave_group(uuid) to authenticated;
+
+-- Members still leave with a plain delete; an owner must use leave_group()
+-- so the squad is never left without someone who can run it.
+drop policy if exists "leave group" on group_members;
+create policy "leave group" on group_members for delete
+  using (user_id = auth.uid()
+         and not exists (select 1 from groups gr where gr.id = group_id and gr.owner_id = auth.uid()));

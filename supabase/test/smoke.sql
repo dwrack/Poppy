@@ -657,6 +657,32 @@ do $$ declare rf uuid := current_setting('smoke.rf')::uuid; begin
 end $$;
 reset role;
 
+-- Wore-it photos stay with the round's squad. Penny wore her family-round look; Bea
+-- (Penny's friends squad only) cannot see that photo, Poppy (family) can, and Bea
+-- still sees Penny's clothes.
+insert into round_actions (user_id, round_id, kind, photo_path) values
+  ('00000000-0000-0000-0000-00000000000e', current_setting('smoke.rf')::uuid, 'wore_it',
+   '00000000-0000-0000-0000-00000000000e/wore/' || current_setting('smoke.rf') || '.jpg');
+insert into storage.objects (bucket_id, name) values
+  ('closet', '00000000-0000-0000-0000-00000000000e/wore/' || current_setting('smoke.rf') || '.jpg'),
+  ('closet', '00000000-0000-0000-0000-00000000000e/10000000-0000-0000-0000-00000000000e/cutout.png');
+select pg_temp.act_as('b');
+set role authenticated;
+do $$ begin
+  assert (select count(*) from storage.objects where name like '00000000-0000-0000-0000-00000000000e/wore/%') = 0,
+    'v9: a friend from another squad cannot see a family-round wore-it photo';
+  assert (select count(*) from storage.objects where name like '00000000-0000-0000-0000-00000000000e/10000000%') = 1,
+    'v9: friends still see each other''s clothes';
+end $$;
+reset role;
+select pg_temp.act_as('a');
+set role authenticated;
+do $$ begin
+  assert (select count(*) from storage.objects where name like '00000000-0000-0000-0000-00000000000e/wore/%') = 1,
+    'v9: the family squad sees Penny''s family-round wore-it photo';
+end $$;
+reset role;
+
 -- Dad leaves the family squad; it carries on without him. The outsider sees none of it.
 select pg_temp.act_as('f');
 set role authenticated;
@@ -675,6 +701,33 @@ reset role;
 do $$ begin
   assert (select count(*) from group_members where group_id = current_setting('smoke.gf')::uuid) = 2, 'v9: family squad has Poppy and Penny after Dad left';
 end $$;
+
+-- Poppy started the family squad. She cannot just delete her membership; leave_group()
+-- hands the squad to Penny (who joined first), who can then start a round.
+select pg_temp.act_as('a');
+set role authenticated;
+do $$ declare gf uuid := current_setting('smoke.gf')::uuid; begin
+  delete from group_members where group_id = gf and user_id = auth.uid();
+  assert (select count(*) from group_members where group_id = gf and user_id = auth.uid()) = 1, 'v9: an owner cannot leave by a plain delete';
+  perform leave_group(gf);
+  assert (select count(*) from group_members where user_id = auth.uid()) = 1, 'v9: Poppy left the family squad';
+end $$;
+reset role;
+do $$ declare gf uuid := current_setting('smoke.gf')::uuid; begin
+  assert (select owner_id from groups where id = gf) = '00000000-0000-0000-0000-00000000000e', 'v9: Penny owns the family squad now';
+  assert (select role from group_members where group_id = gf and user_id = '00000000-0000-0000-0000-00000000000e') = 'owner', 'v9: Penny has the owner role';
+end $$;
+select pg_temp.act_as('c');
+set role authenticated;
+do $$ begin
+  begin
+    perform leave_group(current_setting('smoke.gf')::uuid);
+    raise exception 'v9: an outsider left a squad they are not in';
+  exception when raise_exception then
+    if sqlerrm like 'v9:%' then raise; end if;
+  end;
+end $$;
+reset role;
 
 \pset tuples_only off
 select 'SMOKE ASSERTS PASSED' as result;

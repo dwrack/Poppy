@@ -21,11 +21,13 @@
 --    name photoreal, Public bucket OFF > Create. Then run this file again
 --    so the access rules attach to it.
 -- 4. The studio Mac's key, once: Project Settings > API > Project API
---    keys > service_role > Reveal > copy. On the MacBook, in Terminal:
---        mkdir -p ~/.config/poppy && pbpaste > ~/.config/poppy/service_key && chmod 600 ~/.config/poppy/service_key
---    That key can read and write everything, so it lives ONLY in that
---    file: never in the app, never in this repo, never in a vault, never
---    in a chat. The app keeps using the publishable key it already has.
+--    keys > service_role > Reveal > copy. On the MacBook, double-click
+--        ~/Projects/poppy-photoreal/set-service-key.command
+--    and paste at the hidden prompt. That key can read and write
+--    everything, so it lives ONLY in the MacBook's login Keychain
+--    (service poppy-studio): never a file (mac-sync copies key files to
+--    the other Macs), never in the app, this repo, a vault or a chat.
+--    The app keeps using the publishable key it already has.
 -- 5. Check: `select * from studio_status;` shows one row a minute after
 --    the worker starts. Until then the app says "Studio is offline, your
 --    photo will arrive later." and jobs wait in the queue.

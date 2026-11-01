@@ -41,6 +41,12 @@ export function SignIn() {
         : error.message)
       return
     }
+    if (mode === 'up') {
+      // The code is used up now: take it out of the address bar so signing in from this tab
+      // does not offer it again as "Join another squad".
+      const url = new URL(location.href)
+      if (url.searchParams.has('invite')) { url.searchParams.delete('invite'); history.replaceState(history.state, '', url.pathname + url.search + url.hash) }
+    }
     if (mode === 'up' && !data.session) setMsg('Check your email and tap the confirmation link, then sign in here.')
   }
 

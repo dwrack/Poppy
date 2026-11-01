@@ -73,3 +73,9 @@ export function bindDb(userId: string, d: PoppyDb) {
   db = d
   owner = userId
 }
+
+/** Back to no account (sign-out, or before another account binds): loops holding the old database stop. */
+export function unbindDb() {
+  db = SIGNED_OUT
+  owner = null
+}

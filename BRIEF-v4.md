@@ -41,7 +41,8 @@ actual outfit, for every look she builds and every runway entry.
   "studio is offline, your photo will arrive later" when no worker has
   checked in for 10 minutes.
 - No inbound ports, no Tailscale needed: the worker only makes outbound
-  calls to Supabase with a service key that lives in `~/.config/poppy/`.
+  calls to Supabase with a service key kept in the MacBook login Keychain
+  (`set-service-key.command`, never a file under `~/.config`).
 
 ### 3. Safety, in this order, every render
 

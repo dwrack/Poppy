@@ -5,20 +5,23 @@ import {
 } from '../lib/friends'
 import { useSquad, useSquads, type Squad } from '../lib/squads'
 import { CATEGORY_LABEL } from '../types'
-import { SquadSwitcher } from './SquadSwitcher'
+import { SquadSwitcher, SquadWaiting } from './SquadSwitcher'
 
 const EMOJIS = ['🌸', '🦋', '🍓', '🌈', '⭐', '🐱', '🍒', '🌻', '🫧', '🎀', '🐰', '🌙', '🐶', '🦊', '🎸', '⚽']
 
-export function Friends({ userId }: { userId: string }) {
+export function Friends({ userId, invite, onInviteUsed }: { userId: string; invite?: string | null; onInviteUsed?: () => void }) {
   const squad = useSquad(userId)
 
-  if (squad.loading) return <div className="p-8 text-center text-mute">Loading…</div>
-  if (!squad.group) return <FirstSquad userId={userId} />
+  // Loading or failed: the switcher stays (SquadWaiting), so one squad that will not load never traps anyone.
+  if (squad.loading) return <SquadWaiting userId={userId} error={squad.error} retry={squad.refresh} />
+  if (!squad.group) return <FirstSquad userId={userId} invite={invite} onInviteUsed={onInviteUsed} />
   // Keyed by squad: switching squads starts this screen fresh (no closet, request or member from the other one).
-  return <SquadHome key={squad.group.id} userId={userId} group={squad.group} members={squad.members} />
+  return <SquadHome key={squad.group.id} userId={userId} group={squad.group} members={squad.members} invite={invite} onInviteUsed={onInviteUsed} />
 }
 
-function SquadHome({ userId, group, members }: { userId: string; group: Squad; members: Member[] }) {
+function SquadHome({ userId, group, members, invite, onInviteUsed }: {
+  userId: string; group: Squad; members: Member[]; invite?: string | null; onInviteUsed?: () => void
+}) {
   const [viewing, setViewing] = useState<Member>()
   if (viewing) return <FriendCloset member={viewing} isMe={viewing.user_id === userId} onBack={() => setViewing(undefined)} />
 
@@ -44,30 +47,34 @@ function SquadHome({ userId, group, members }: { userId: string; group: Squad; m
       <p className="mt-1 text-xs text-mute">Tap someone to see their closet.</p>
 
       <BorrowBoard userId={userId} groupId={group.id} members={members} />
-      <MoreSquads userId={userId} group={group} />
+      <MoreSquads userId={userId} group={group} invite={invite} onInviteUsed={onInviteUsed} />
     </div>
   )
 }
 
 /* ---------- No squad yet: start or join one ---------- */
 
-function FirstSquad({ userId }: { userId: string }) {
+function FirstSquad({ userId, invite, onInviteUsed }: { userId: string; invite?: string | null; onInviteUsed?: () => void }) {
   const { refresh, setActive } = useSquads(userId)
+  useEffect(() => { if (invite) onInviteUsed?.() }, [invite, onInviteUsed])
   return (
     <div className="safe-top flex min-h-full flex-col items-center px-6 pt-10 pb-28 text-center">
       <div className="text-6xl">👯</div>
       <h1 className="mt-3 text-2xl font-extrabold">Your squad</h1>
       <p className="mt-1 max-w-xs text-mute">A private group for you and your friends or family. Swap closets, borrow pieces, and play style challenges.</p>
-      <SquadForm initialMode="start" onDone={async (id) => { await refresh(); setActive(id) }} />
+      <SquadForm initialMode={invite ? 'join' : 'start'} initialCode={invite ?? ''} onDone={async (id) => { await refresh(); setActive(id) }} />
     </div>
   )
 }
 
 /* ---------- Another squad, any time: start, join, or leave this one ---------- */
 
-function MoreSquads({ userId, group }: { userId: string; group: Squad }) {
+function MoreSquads({ userId, group, invite, onInviteUsed }: { userId: string; group: Squad; invite?: string | null; onInviteUsed?: () => void }) {
   const { squads, refresh, setActive } = useSquads(userId)
-  const [adding, setAdding] = useState<'start' | 'join'>()
+  // An invite link opened while signed in lands here with the join form open and the code in.
+  const [adding, setAdding] = useState<'start' | 'join' | undefined>(invite ? 'join' : undefined)
+  const [code] = useState(invite ?? '')
+  useEffect(() => { if (invite) onInviteUsed?.() }, [invite, onInviteUsed])
   const [busy, setBusy] = useState(false)
   const [err, setErr] = useState<string>()
 
@@ -78,10 +85,11 @@ function MoreSquads({ userId, group }: { userId: string; group: Squad }) {
   }
 
   async function leave() {
-    if (!confirm(`Leave ${group.name}? You’d need a new invite code to get back in.`)) return
+    const handOver = group.role === 'owner' ? ' You started it, so it passes to whoever joined first.' : ''
+    if (!confirm(`Leave ${group.name}?${handOver} You’d need a new invite code to get back in.`)) return
     setBusy(true); setErr(undefined)
     try {
-      await leaveSquad(group.id, userId)
+      await leaveSquad(group.id)
       const next = squads.find((s) => s.id !== group.id)
       await refresh()
       if (next) setActive(next.id)
@@ -104,7 +112,7 @@ function MoreSquads({ userId, group }: { userId: string; group: Squad }) {
       {err && <p className="text-center text-sm text-poppy">{err}</p>}
       {adding && (
         <Sheet onClose={() => setAdding(undefined)}>
-          <SquadForm key={adding} initialMode={adding} myName={group.my_name} myEmoji={group.my_emoji} onDone={added} />
+          <SquadForm key={adding} initialMode={adding} initialCode={adding === 'join' ? code : ''} myName={group.my_name} myEmoji={group.my_emoji} onDone={added} />
         </Sheet>
       )}
     </section>
@@ -116,13 +124,13 @@ function MoreSquads({ userId, group }: { userId: string; group: Squad }) {
  * in it. Someone already in a squad keeps the name they go by there, so the
  * only typing is the squad name or the code.
  */
-function SquadForm({ initialMode, myName, myEmoji, onDone }: {
-  initialMode: 'start' | 'join'; myName?: string; myEmoji?: string; onDone: (groupId: string) => Promise<void>
+function SquadForm({ initialMode, initialCode = '', myName, myEmoji, onDone }: {
+  initialMode: 'start' | 'join'; initialCode?: string; myName?: string; myEmoji?: string; onDone: (groupId: string) => Promise<void>
 }) {
   const [mode, setMode] = useState(initialMode)
   const [squadName, setSquadName] = useState('')
   const [name, setName] = useState('')
-  const [code, setCode] = useState('')
+  const [code, setCode] = useState(initialCode)
   const [emoji, setEmoji] = useState(myEmoji ?? '🌸')
   const [busy, setBusy] = useState(false)
   const [err, setErr] = useState<string>()
@@ -189,7 +197,7 @@ function InviteButton({ groupId, groupName }: { groupId: string; groupName: stri
     try { setCode(await makeInvite(groupId)) } catch (x) { setErr((x as Error).message) } finally { setBusy(false) }
   }
   async function share() {
-    const text = `Join ${groupName} on Poppyseed! Your invite code is ${code}.`
+    const text = `Join ${groupName} on Poppyseed! Your invite code is ${code}. Already on Poppyseed? Open the link, or go to the Squad tab and tap Join another squad.`
     if (navigator.share) { try { await navigator.share({ title: 'Poppyseed invite', text, url: link }) } catch { /* cancelled */ } }
     else await navigator.clipboard?.writeText(`${text} ${link}`)
   }
@@ -297,13 +305,14 @@ const STATUS_LABEL: Record<Borrow['status'], string> = {
 }
 
 function BorrowBoard({ userId, groupId, members }: { userId: string; groupId: string; members: Member[] }) {
-  const { list } = useBorrows(userId, groupId, members)
+  const { allMates } = useSquads(userId)
+  const { list } = useBorrows(userId, groupId, members, allMates)
   const [tab, setTab] = useState<'mine' | 'asked'>('mine')
   const [cards, setCards] = useState<Awaited<ReturnType<typeof describeItems>>>(new Map())
   const ids = useMemo(() => [...new Set(list.map((b) => b.item_id))].sort().join(','), [list])
   useEffect(() => { describeItems(ids ? ids.split(',') : []).then(setCards) }, [ids])
 
-  const nameOf = (id: string) => members.find((m) => m.user_id === id)?.display_name ?? 'Someone'
+  const nameOf = (id: string) => members.find((m) => m.user_id === id)?.display_name ?? allMates.get(id) ?? 'A friend who left'
   const mine = list.filter((b) => b.owner_id === userId)
   const asked = list.filter((b) => b.borrower_id === userId)
   const shown = tab === 'mine' ? mine : asked

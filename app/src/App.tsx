@@ -1,8 +1,9 @@
-import { useEffect, useState } from 'react'
+import { useCallback, useEffect, useState } from 'react'
 import type { Session } from '@supabase/supabase-js'
 import { AddItem } from './components/AddItem'
 import { Closet } from './components/Closet'
 import { Friends } from './components/Friends'
+import { takeInviteFromUrl } from './lib/friends'
 import { Runway } from './components/Runway'
 import { You } from './components/You'
 import { useAccountDb } from './lib/account'
@@ -30,7 +31,10 @@ export default function App() {
 }
 
 function Home({ session }: { session: Session }) {
-  const [tab, setTab] = useState<Tab>('closet')
+  // An invite link opened while signed in: go straight to the Squad tab with the code in the join form.
+  const [invite, setInvite] = useState(() => takeInviteFromUrl())
+  const [tab, setTab] = useState<Tab>(() => (invite ? 'friends' : 'closet'))
+  const inviteUsed = useCallback(() => setInvite(null), [])
   const [adding, setAdding] = useState(false)
 
   useEffect(() => {
@@ -47,7 +51,7 @@ function Home({ session }: { session: Session }) {
       <div className="flex-1">
         {tab === 'closet' && <Closet onAdd={() => setAdding(true)} />}
         {tab === 'runway' && <Runway userId={session.user.id} onAdd={() => setAdding(true)} onGoSquad={() => setTab('friends')} />}
-        {tab === 'friends' && <Friends userId={session.user.id} />}
+        {tab === 'friends' && <Friends userId={session.user.id} invite={invite} onInviteUsed={inviteUsed} />}
         {tab === 'you' && <You email={session.user.email} userId={session.user.id} />}
       </div>
       <nav className="safe-bottom fixed inset-x-0 bottom-0 z-10 flex justify-around border-t border-black/5 bg-cream/95 pt-2 backdrop-blur">

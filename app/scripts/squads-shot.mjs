@@ -26,7 +26,7 @@ const PORT = Number(process.env.SHOT_PORT) || 4176
 
 const server = spawn('npx', ['vite', 'preview', '--port', String(PORT), '--strictPort'], { cwd: app, stdio: ['ignore', 'pipe', 'pipe'] })
 await new Promise((ok, bad) => {
-  const t = setTimeout(() => bad(new Error('preview did not start')), 20000)
+  const t = setTimeout(() => bad(new Error('preview did not start')), 60000)
   server.stdout.on('data', (d) => { if (String(d).includes('http')) { clearTimeout(t); ok() } })
   server.stderr.on('data', (d) => process.stderr.write(d))
 })
@@ -102,6 +102,11 @@ await ctx.route(/supabase\.co\//, (route) => {
     }
     if (q.get('user_id')) return json(route, mine.map((x) => ({ ...x, groups: groups[x.group_id] })))
     return json(route, members[dot(q.get('group_id') ?? '')] ?? [])
+  }
+  if (p.endsWith('/rest/v1/rpc/leave_group')) { // leave (v9: owners hand the squad on)
+    const i = mine.findIndex((x) => x.group_id === req.postDataJSON()?.g)
+    if (i >= 0) mine.splice(i, 1)
+    return json(route, null)
   }
   if (p.endsWith('/rest/v1/rpc/create_group')) {
     const b = req.postDataJSON()
@@ -203,7 +208,18 @@ try {
   await page.getByRole('heading', { name: 'Poppy’s Squad' }).waitFor({ timeout: 10000 })
   check(await switcher.getByRole('tab').count() === 2, 'two squads after leaving one')
 
-  console.log(`squads: switcher on Squad + Runway, members/requests/runway/ladder follow the active squad with nothing leaking, pick survives reload, start + leave ok, console errors: ${errors.length}`)
+  // An invite link opened while signed in: Squad tab, join form open with the code in,
+  // and the code taken out of the address bar so a reload does not offer it again.
+  await page.goto(`http://localhost:${PORT}/?invite=XYZ789`, { waitUntil: 'networkidle' })
+  const codeBox = page.getByPlaceholder('ABC123')
+  await codeBox.waitFor({ timeout: 15000 })
+  check((await codeBox.inputValue()) === 'XYZ789', 'invite code should be filled in')
+  check(!page.url().includes('invite='), 'invite code should leave the address bar')
+  await page.reload({ waitUntil: 'networkidle' })
+  await page.getByRole('heading', { name: 'Closet', exact: true }).waitFor({ timeout: 15000 })
+  check(!(await page.getByPlaceholder('ABC123').count()), 'a reload should not reopen the invite')
+
+  console.log(`squads: switcher on Squad + Runway, members/requests/runway/ladder follow the active squad with nothing leaking, pick survives reload, start + leave ok, invite link while signed in ok, console errors: ${errors.length}`)
   for (const e of errors) console.log('  ' + e)
   if (errors.length) process.exitCode = 1
 } catch (e) {

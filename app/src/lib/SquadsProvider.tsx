@@ -13,7 +13,8 @@ type MyRow = { group_id: string; display_name: string; emoji: string; role: 'own
 export function SquadsProvider({ userId, children }: { userId: string; children: ReactNode }) {
   const [list, setList] = useState<{ loading: boolean; squads: Squad[] }>({ loading: true, squads: [] })
   const [activeId, setActiveId] = useState<string | null>(() => readActive(userId))
-  const [mem, setMem] = useState<{ groupId?: string; list: Member[] }>({ list: [] })
+  const [mem, setMem] = useState<{ groupId?: string; list: Member[]; errorFor?: string }>({ list: [] })
+  const [allMates, setAllMates] = useState<Map<string, string>>(() => new Map())
   const [membersTick, setMembersTick] = useState(0)
 
   const loadList = useCallback(async () => {
@@ -25,6 +26,15 @@ export function SquadsProvider({ userId, children }: { userId: string; children:
       ? [{ ...r.groups, my_name: r.display_name, my_emoji: r.emoji, role: r.role, joined_at: r.joined_at }]
       : []))
     setList({ loading: false, squads })
+    // Everyone in any of my squads (RLS shows members of my squads only): the borrow board
+    // uses it to keep open loans with someone who has since left every squad we shared.
+    const ids = squads.map((s) => s.id)
+    if (!ids.length) { setAllMates(new Map()); return }
+    const { data: ms, error: e2 } = await supabase.from('group_members').select('user_id, display_name').in('group_id', ids).order('joined_at')
+    if (e2 || !Array.isArray(ms)) return
+    const m = new Map<string, string>()
+    for (const r of ms as { user_id: string; display_name: string }[]) if (!m.has(r.user_id)) m.set(r.user_id, r.display_name)
+    setAllMates(m)
   }, [userId])
 
   useEffect(() => {
@@ -44,16 +54,27 @@ export function SquadsProvider({ userId, children }: { userId: string; children:
   useEffect(() => {
     if (!activeGroup) return
     let live = true
+    let tries = 0
+    let timer: ReturnType<typeof setTimeout> | undefined
     const load = async () => {
+      clearTimeout(timer)
       const { data, error } = await supabase.from('group_members').select('*').eq('group_id', activeGroup).order('joined_at')
-      if (live && !error && Array.isArray(data)) setMem({ groupId: activeGroup, list: data as Member[] })
+      if (!live) return
+      if (!error && Array.isArray(data)) { tries = 0; setMem({ groupId: activeGroup, list: data as Member[] }); return }
+      // Keep the last good members (never another squad's under this one), say it failed, try again soon.
+      setMem((m) => ({ ...m, errorFor: activeGroup }))
+      if (tries < 3) timer = setTimeout(() => void load(), 2000 * 2 ** tries++)
     }
     void load()
     const ch = supabase.channel(uniqueTopic(`squad-members:${activeGroup}`))
       .on('postgres_changes', { event: '*', schema: 'public', table: 'group_members', filter: `group_id=eq.${activeGroup}` }, () => void load())
       .subscribe()
     window.addEventListener('focus', load)
-    return () => { live = false; void supabase.removeChannel(ch); window.removeEventListener('focus', load) }
+    window.addEventListener('online', load)
+    return () => {
+      live = false; clearTimeout(timer); void supabase.removeChannel(ch)
+      window.removeEventListener('focus', load); window.removeEventListener('online', load)
+    }
   }, [activeGroup, membersTick])
 
   const setActive = useCallback((groupId: string) => { setActiveId(groupId); writeActive(userId, groupId) }, [userId])
@@ -63,8 +84,9 @@ export function SquadsProvider({ userId, children }: { userId: string; children:
     userId, loading: list.loading, squads: list.squads, active,
     members: mem.groupId && mem.groupId === activeGroup ? mem.list : [],
     membersFor: mem.groupId === activeGroup ? activeGroup : undefined,
+    membersErrorFor: mem.errorFor, allMates,
     setActive, refresh,
-  }), [userId, list, active, activeGroup, mem, setActive, refresh])
+  }), [userId, list, active, activeGroup, mem, allMates, setActive, refresh])
 
   return <SquadsContext.Provider value={value}>{children}</SquadsContext.Provider>
 }
