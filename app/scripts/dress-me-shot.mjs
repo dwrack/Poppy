@@ -39,9 +39,14 @@ const ctx = await browser.newContext({ viewport: { width: 390, height: 844 }, de
 await ctx.addInitScript(([k, v]) => localStorage.setItem(k, v), ['sb-yrcddfehjjbtzwuotmym-auth-token', JSON.stringify(session)])
 // Nothing leaves the machine: auth/v1/user answers with no id, so sync stays idle; everything else is an empty list.
 // photo_jobs remembers what the Photo button queued; studio_status stays empty, so the studio reads as offline.
+// photoreal_children (a parent's yes) starts empty, so the Photo button must not show until `consent` flips.
 const jobs = []
+let consent = false
 await ctx.route(/supabase\.co\//, (route) => {
   const req = route.request(), u = req.url()
+  if (u.includes('/rest/v1/photoreal_children')) {
+    return route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(consent ? [{ user_id: USER }] : []) })
+  }
   if (u.includes('/rest/v1/photo_jobs')) {
     if (req.method() === 'POST') {
       const body = req.postDataJSON()
@@ -132,6 +137,10 @@ try {
   await wear('Top'); await wear('Bottom'); await wear('Shoes'); await wear('Jacket')
   await page.waitForTimeout(800)
 
+  // No parent's yes yet: no Photo button at all. Then the yes lands and it shows on the next focus.
+  if ((await page.getByTestId('photo-button').count()) !== 0) throw new Error('Photo button showed without a parent\'s yes')
+  consent = true
+  await page.evaluate(() => window.dispatchEvent(new Event('focus')))
   // Photo: queue a photo-real render of this look; with no studio heartbeat the chip says so, in the exact words
   await page.getByTestId('photo-button').click()
   const chip = page.getByTestId('photo-chip')
@@ -199,7 +208,7 @@ try {
   await page.waitForTimeout(2500)
   if (extraDir) await page.screenshot({ path: resolve(extraDir, 'you-tab.png') })
 
-  console.log(`dress-me: canvas ok, webgl ok, photo queued + offline chip + ready toggle ok, you-tab preview ok, console errors: ${errors.length}`)
+  console.log(`dress-me: canvas ok, webgl ok, no Photo button without a yes, photo queued + offline chip + ready toggle ok, you-tab preview ok, console errors: ${errors.length}`)
   for (const e of errors) console.log('  ' + e)
   if (errors.length) process.exitCode = 1
 } catch (e) {

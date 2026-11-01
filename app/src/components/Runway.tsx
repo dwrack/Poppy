@@ -9,7 +9,7 @@ import {
   packFor, phaseEnds, rank, seededShuffle, setSquadTimeZone, startRoundNow, submitEntry, useActivePack, useRound, useSubmitted, SEASON_ROUNDS,
   type Chip, type EntryCard, type MyEntry, type PastRound, type Result, type Round, type Vote,
 } from '../lib/game'
-import { queueEntryPhoto, useMyPhotoJobs, useStudio } from '../lib/photos'
+import { coversLook, ownPieces, queueEntryPhoto, useMyPhotoJobs, usePhotoAllowed, useStudio, type PhotoPiece } from '../lib/photos'
 import { useObjectUrl } from '../lib/useObjectUrl'
 import { CATEGORIES, CATEGORY_LABEL, type Category, type Item } from '../types'
 import { AvatarStage } from './AvatarStage'
@@ -151,7 +151,8 @@ function OpenRound({ round, userId, members, now, onAdd }: { round: Round; userI
   const wear = async (look: StyledLook) => {
     await wearStyledLook(round.id, userId, look); setEditing(false)
     const e = await loadMyEntry(round.id, userId)
-    if (e) queueEntryPhoto(e.id, e.outfit.items) // the studio renders the styled look too
+    // the studio renders the styled look too; fire and forget, like every runway photo
+    if (e) void closetPieces(e.outfit.items).then((pieces) => queueEntryPhoto(e.id, pieces, e.outfit.borrowed), () => {})
     await Promise.all([load(), refreshLooks()])
   }
   const wornId = entry?.styled_look_id ?? null
@@ -167,9 +168,9 @@ function OpenRound({ round, userId, members, now, onAdd }: { round: Round; userI
           onAdd={onAdd}
           onCancel={entry ? () => setEditing(false) : undefined}
           onSent={refreshLooks}
-          onSubmit={async (ids, b) => {
-            const id = await submitEntry(round.id, userId, ids, b)
-            if (id) queueEntryPhoto(id, ids) // photo-real render for the reveal; the avatar covers it if it never comes
+          onSubmit={async (pieces, b) => {
+            const id = await submitEntry(round.id, userId, pieces.map((p) => p.id), b)
+            if (id) queueEntryPhoto(id, pieces, b) // photo-real render of her own pieces for the reveal; the avatar covers it if it never comes
             setEditing(false); await load()
           }}
         />
@@ -192,7 +193,7 @@ function OpenRound({ round, userId, members, now, onAdd }: { round: Round; userI
         </div>
         {styledBy && <p className="mt-2 text-center text-xs font-bold text-poppy">✨ Styled by {styledBy}</p>}
         {lent.length > 0 && <p className="mt-1 text-center text-xs text-mute">Borrowed: {lent.map((p) => `${p.name} from ${p.owner}`).join(', ')}</p>}
-        <EntryPhoto entryId={entry.id} />
+        <EntryPhoto entryId={entry.id} look={ownPieces(entry.outfit.items, entry.outfit.borrowed)} />
         <p className="mt-3 text-center text-xs text-mute">Nobody sees it until the runway. No copying possible.</p>
       </section>
       <StyledLooks looks={forMe} wornId={wornId} onWear={wear} />
@@ -201,12 +202,28 @@ function OpenRound({ round, userId, members, now, onAdd }: { round: Round; userI
   )
 }
 
-/** Where the studio is with the photo of my runway look. Hidden until a job exists. */
-function EntryPhoto({ entryId }: { entryId: string }) {
+/** Her own pieces of a look with their categories, from her closet on this phone (a styled look is built from it). */
+async function closetPieces(ids: string[]): Promise<PhotoPiece[]> {
+  const items = await db.items.bulkGet(ids)
+  return items.flatMap((it) => (it ? [{ id: it.id, category: it.category }] : []))
+}
+
+/** Nothing photo-real on the runway card unless a parent switched it on for her (photoreal_children). */
+function EntryPhoto(props: { entryId: string; look: string[] }) {
+  return usePhotoAllowed() ? <EntryPhotoChip {...props} /> : null
+}
+
+/**
+ * Where the studio is with the photo of my runway look. Hidden until a job
+ * exists. A photo of a look she has since changed never shows on the
+ * runway (entry_photo_job), so the chip says "earlier look" instead.
+ */
+function EntryPhotoChip({ entryId, look }: { entryId: string; look: string[] }) {
   const { latest } = useMyPhotoJobs('entry', entryId)
   const { online } = useStudio()
   if (!latest) return null
-  return <PhotoChip job={latest} online={online} className="mt-2 text-center" note={latest.status === 'done' ? 'shows on the runway' : undefined} />
+  const note = !coversLook(latest, look) ? 'earlier look' : latest.status === 'done' ? 'shows on the runway' : undefined
+  return <PhotoChip job={latest} online={online} className="mt-2 text-center" note={note} />
 }
 
 /** A small picture of a look: the photo-real render when there is one, else the cutout stack. */
@@ -243,7 +260,7 @@ function WhoIsIn({ members, submitted, userId, live }: { members: Member[]; subm
 
 function DressingRoom({ round, userId, members, asked, borrowed, borrowsLoading, sent, initial, onAdd, onCancel, onSent, onSubmit }: {
   round: Round; userId: string; members: Member[]; asked: Borrow[]; borrowed: RemotePiece[]; borrowsLoading: boolean; sent: StyledLook[]
-  initial: string[]; onAdd: () => void; onCancel?: () => void; onSent: () => void; onSubmit: (ids: string[], borrowed: string[]) => Promise<void>
+  initial: string[]; onAdd: () => void; onCancel?: () => void; onSent: () => void; onSubmit: (pieces: PhotoPiece[], borrowed: string[]) => Promise<void>
 }) {
   const items = useLiveQuery(() => db.items.where('status').equals('active').reverse().sortBy('createdAt'), []) ?? []
   const [picked, setPicked] = useState<string[]>(initial)
@@ -259,16 +276,16 @@ function DressingRoom({ round, userId, members, asked, borrowed, borrowsLoading,
   // What is on the stack right now, in order, with who lent it.
   const worn = picked.flatMap((id) => {
     const mine = items.find((i) => i.id === id)
-    if (mine) return [{ id, label: mine.name || CATEGORY_LABEL[mine.category] }]
+    if (mine) return [{ id, label: mine.name || CATEGORY_LABEL[mine.category], category: mine.category }]
     const b = borrowed.find((p) => p.id === id)
-    return b ? [{ id, label: `${b.name} · from ${b.owner}` }] : []
+    return b ? [{ id, label: `${b.name} · from ${b.owner}`, category: b.category }] : []
   })
 
   async function send() {
     if (borrowsLoading) return // a saved look's borrowed pieces are not in `worn` yet; sending now would strip them
     setBusy(true); setErr(undefined)
-    const ids = worn.map((w) => w.id) // drops anything that is no longer yours or no longer a yes (borrows are loaded by now)
-    try { await onSubmit(ids, ids.filter((id) => borrowedIds.has(id))) } catch (x) { setErr((x as Error).message) } finally { setBusy(false) }
+    const pieces = worn.map(({ id, category }) => ({ id, category })) // drops anything that is no longer yours or no longer a yes (borrows are loaded by now)
+    try { await onSubmit(pieces, pieces.filter((p) => borrowedIds.has(p.id)).map((p) => p.id)) } catch (x) { setErr((x as Error).message) } finally { setBusy(false) }
   }
 
   return (

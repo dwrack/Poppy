@@ -29,12 +29,35 @@
 -- 5. Check: `select * from studio_status;` shows one row a minute after
 --    the worker starts. Until then the app says "Studio is offline, your
 --    photo will arrive later." and jobs wait in the queue.
+-- 6. Photos are OFF for every child until her parent says yes. Poppy,
+--    once: find her id with `select id, email from auth.users;`, then
+--        insert into photoreal_children (user_id, approved_by)
+--        values ('<her id>', 'David, her dad') on conflict do nothing;
+--    A friend gets a row only after her own parent has said yes and sent
+--    a reference photo (BRIEF-v4). Until then she sees no Photo button
+--    and her looks walk in as the avatar. To switch a child off again:
+--        delete from photoreal_children where user_id = '<her id>';
+--    No new photos from then on, and her runway photos come down for the
+--    squad straight away.
 -- =====================================================================
 --
 -- The contract with the studio worker (~/Projects/poppy-photoreal):
+--   photoreal_children  one row per child whose parent said yes. Only
+--                  the service role writes it. No row: the app shows no
+--                  Photo button and no chips and queues nothing, the
+--                  insert trigger refuses her jobs, the squad sees none
+--                  of her photos, and the worker checks the same row
+--                  before it renders.
 --   photo_jobs     one row per requested photo. The app inserts kind,
---                  entry_id, item_ids (round_id is copied from the entry);
---                  a trigger forces everything else. The worker (service
+--                  entry_id, item_ids (round_id is copied from the entry).
+--                  item_ids: 1 to 5 of the player's own pieces, for both
+--                  kinds (a borrowed piece in a runway look stays a cutout
+--                  card beside the photo, never on her), in the studio's
+--                  category order (top, bottom, dress, outerwear, shoes,
+--                  hat, scarf, bag, accessory) and cut after 5: her photo
+--                  plus 5 garments is what the studio draws in one pass,
+--                  and a hat picked first never pushes the shoes out.
+--                  A trigger forces everything else. The worker (service
 --                  role) moves status queued > rendering > review > done
 --                  (or failed / rejected), uploads to
 --                  photoreal/<user_id>/<job_id>.jpg and sets result_path.
@@ -42,11 +65,30 @@
 --   studio_status  one row (id 1), the worker's heartbeat. Older than 10
 --                  minutes, or missing, means the studio is offline.
 --   entries.photo_job_id  set by the worker when an entry job is done.
+--                  The runway does not go by it: it shows
+--                  entry_photo_job(entry), the newest done job whose
+--                  pieces are the look as it stands.
 --   photoreal      private bucket. You read your own photos once they
 --                  are done (a render waiting for parent review is not
 --                  readable, not even by you); a squad mate reads a
 --                  runway photo once that round's reveal has started.
 --                  Nobody but the worker writes.
+
+-- Consent ------------------------------------------------------------------
+-- A parent's yes, one row per child (BRIEF-v4: friends get photos only
+-- once their own parent sends a reference photo the same way). Only the
+-- service role writes here: the SQL Editor, or the studio side. A player
+-- reads her own row, which is how the app knows to show the Photo button.
+create table if not exists photoreal_children (
+  user_id uuid primary key references auth.users(id) on delete cascade,
+  approved_by text not null,
+  approved_at timestamptz not null default now()
+);
+alter table photoreal_children enable row level security;
+drop policy if exists "see your own photo consent" on photoreal_children;
+create policy "see your own photo consent" on photoreal_children for select
+  using (user_id = auth.uid());
+revoke insert, update, delete on photoreal_children from anon, authenticated;
 
 -- Jobs -------------------------------------------------------------------
 create table if not exists photo_jobs (
@@ -55,7 +97,7 @@ create table if not exists photo_jobs (
   kind text not null check (kind in ('dressme','entry')),
   entry_id uuid references entries(id) on delete cascade,
   round_id uuid,
-  item_ids uuid[] not null check (cardinality(item_ids) between 1 and 6),
+  item_ids uuid[] not null check (cardinality(item_ids) between 1 and 5),
   status text not null default 'queued'
     check (status in ('queued','rendering','review','done','failed','rejected')),
   result_path text,
@@ -72,6 +114,19 @@ create index if not exists photo_jobs_user on photo_jobs (user_id, created_at de
 create index if not exists photo_jobs_entry on photo_jobs (entry_id, created_at desc);
 create index if not exists photo_jobs_result on photo_jobs (result_path);
 alter table photo_jobs enable row level security;
+-- 1 to 5 pieces (an earlier paste of this file allowed 6). Swapped in place
+-- so a re-run keeps it. Unfinished 6-piece jobs from that paste fail first,
+-- since the worker could not move them along under the new check; finished
+-- ones stay as they were.
+update photo_jobs set status = 'failed', error = 'too many pieces', finished_at = now()
+  where cardinality(item_ids) > 5 and status in ('queued','rendering','review');
+alter table photo_jobs drop constraint if exists photo_jobs_item_ids_check;
+alter table photo_jobs add constraint photo_jobs_item_ids_check
+  check (cardinality(item_ids) between 1 and 5) not valid;
+do $$ begin
+  alter table photo_jobs validate constraint photo_jobs_item_ids_check;
+exception when check_violation then null; -- a finished 6-piece job is left alone; new rows are still checked
+end $$;
 
 -- A new job always starts clean, whatever the phone sent. Runs as the
 -- table owner so it can read entries/items past RLS.
@@ -79,6 +134,10 @@ create or replace function photo_jobs_before_insert() returns trigger
 language plpgsql security definer set search_path = public as $$
 begin
   new.user_id := coalesce(auth.uid(), new.user_id); -- the worker (no auth.uid()) never inserts, but keep it sane
+  -- no parent's yes, no photo (the app hides the button; this is the lock)
+  if not exists (select 1 from photoreal_children c where c.user_id = new.user_id) then
+    raise exception 'Photos are not switched on for you yet';
+  end if;
   new.status := 'queued';
   new.attempts := 0;
   new.result_path := null;
@@ -87,11 +146,13 @@ begin
   new.created_at := now();
   new.started_at := null;
   new.finished_at := null;
+  -- each piece once, in the order asked (entry_photo_job counts them)
+  new.item_ids := array(select x from unnest(new.item_ids) with ordinality u(x, n) group by x order by min(n));
   if new.kind = 'entry' then
     -- your own runway look only, and the round comes from the entry
     select e.round_id into new.round_id from entries e where e.id = new.entry_id and e.user_id = new.user_id;
     if not found then raise exception 'That runway look is not yours'; end if;
-    -- only pieces that are in that look (borrowed ones included)
+    -- only pieces that are in that look
     if exists (select 1 from unnest(new.item_ids) x(id)
                where not exists (select 1 from entries e, jsonb_array_elements_text(coalesce(e.outfit->'items', '[]'::jsonb)) o(id)
                                  where e.id = new.entry_id and o.id = x.id::text)) then
@@ -100,11 +161,16 @@ begin
   else
     new.entry_id := null;
     new.round_id := null;
-    -- Dress me: your own closet only (the worker fetches with the service key, so it must not be asked for anyone else's)
-    if exists (select 1 from unnest(new.item_ids) x(id)
-               where not exists (select 1 from items i where i.id = x.id and i.user_id = new.user_id)) then
-      raise exception 'Some pieces are still uploading. Try again in a minute';
-    end if;
+  end if;
+  -- Both kinds: your own closet only. The worker fetches garments with the
+  -- service key, so it must not be asked for anyone else's. And a friend's
+  -- piece is an image her account can swap after the borrow was approved
+  -- (her closet files are hers to overwrite), so it never goes onto your
+  -- photo: in a runway look it stays a cutout card beside it.
+  if exists (select 1 from unnest(new.item_ids) x(id)
+             where not exists (select 1 from items i where i.id = x.id and i.user_id = new.user_id)) then
+    if new.kind = 'entry' then raise exception 'Borrowed pieces stay out of the photo'; end if;
+    raise exception 'Some pieces are still uploading. Try again in a minute';
   end if;
   return new;
 end $$;
@@ -127,9 +193,37 @@ drop trigger if exists photo_jobs_supersede on photo_jobs;
 create trigger photo_jobs_supersede after insert on photo_jobs
   for each row execute function photo_jobs_supersede();
 
--- Policies: owner inserts and reads; squad mates read a finished runway
--- photo once the round's reveal has started; nobody but the worker
--- (service role, which skips RLS) updates or deletes.
+-- The photo of a runway look as it stands: the newest done job for that
+-- entry whose pieces are all still in the look and that covers as much of
+-- it as one photo holds (every one of her own pieces in it, or 5 when
+-- there are more; borrowed pieces never go in the photo). A render of a
+-- look she has since changed never stands in for the current one, whether
+-- the newer job is still waiting, failed, was rejected, or was never
+-- queued at all (an offline phone, an old build). Nothing at all once her
+-- parent's yes is withdrawn (photoreal_children). The runway cards, the
+-- squad's read of photo_jobs and the squad's read of the bucket all go
+-- through this one rule.
+create or replace function entry_photo_job(e uuid) returns uuid
+language sql stable security definer set search_path = public as $$
+  select j.id
+  from entries en
+  cross join lateral (
+    select array_agg(distinct i.id) as ids
+    from jsonb_array_elements_text(coalesce(en.outfit->'items', '[]'::jsonb)) x(id)
+    join items i on i.id::text = x.id and i.user_id = en.user_id) look
+  join photo_jobs j on j.entry_id = en.id
+  where en.id = e and j.kind = 'entry' and j.status = 'done'
+    and exists (select 1 from photoreal_children c where c.user_id = en.user_id)
+    and j.item_ids <@ look.ids
+    and cardinality(j.item_ids) = least(5, cardinality(look.ids))
+  order by j.created_at desc, j.id desc
+  limit 1
+$$;
+
+-- Policies: owner inserts and reads; squad mates read the photo of a
+-- runway look as it stands (entry_photo_job) once the round's reveal has
+-- started; nobody but the worker (service role, which skips RLS) updates
+-- or deletes.
 drop policy if exists "ask for your own photo" on photo_jobs;
 create policy "ask for your own photo" on photo_jobs for insert
   with check (user_id = auth.uid());
@@ -138,7 +232,8 @@ create policy "see your own photo jobs" on photo_jobs for select
   using (user_id = auth.uid());
 drop policy if exists "squad sees runway photos after the reveal" on photo_jobs;
 create policy "squad sees runway photos after the reveal" on photo_jobs for select
-  using (status = 'done' and kind = 'entry' and round_id is not null and round_revealed(round_id));
+  using (status = 'done' and kind = 'entry' and round_id is not null and round_revealed(round_id)
+         and id = entry_photo_job(entry_id));
 revoke update, delete on photo_jobs from anon, authenticated;
 revoke insert on photo_jobs from anon;
 
@@ -163,14 +258,16 @@ insert into storage.buckets (id, name, public)
 values ('photoreal', 'photoreal', false)
 on conflict (id) do update set public = false;
 
--- Can the signed-in player open this rendered photo? Only a finished
--- runway photo, and only once the round's reveal has started (which also
--- means she is in that squad).
+-- Can the signed-in player open this rendered photo? Only the photo of a
+-- runway look as it stands (entry_photo_job: never a look she replaced),
+-- and only once the round's reveal has started (which also means she is
+-- in that squad).
 create or replace function can_see_photo(name text) returns boolean
 language sql stable security definer set search_path = public as $$
   select exists (select 1 from photo_jobs j
     where j.result_path = name and j.status = 'done' and j.kind = 'entry'
-      and j.round_id is not null and round_revealed(j.round_id))
+      and j.round_id is not null and round_revealed(j.round_id)
+      and j.id = entry_photo_job(j.entry_id))
 $$;
 
 -- Can the signed-in player open her own rendered photo? Only once it is
@@ -200,20 +297,18 @@ do $$ begin
 end $$;
 
 -- round_entry_cards_v2, as v4b defines it, except photo_path is now the
--- rendered photo: the newest photo job for that entry, if it is done
--- (an older done photo would show a look she has since changed). Same
--- columns, same visibility (squad only; another player's entry only from
--- the reveal on). Phones on the old build sign photo_path from the
--- closet bucket, get nothing back and keep showing the avatar.
+-- rendered photo of the look as it stands (entry_photo_job), so never a
+-- look she has since changed. Same columns, same visibility (squad only;
+-- another player's entry only from the reveal on). Phones on the old
+-- build sign photo_path from the closet bucket, get nothing back and keep
+-- showing the avatar.
 drop function if exists round_entry_cards_v2(uuid);
 create function round_entry_cards_v2(r uuid)
 returns table (entry_id uuid, user_id uuid, display_name text, emoji text, outfit jsonb,
                photo_path text, submitted_at timestamptz, pieces jsonb, styled_by text, avatar jsonb)
 language sql stable security definer set search_path = public as $$
   select e.id, e.user_id, m.display_name, m.emoji, e.outfit,
-    (select case when j.status = 'done' then j.result_path end
-       from photo_jobs j where j.entry_id = e.id and j.status <> 'rejected'
-       order by j.created_at desc limit 1),
+    (select j.result_path from photo_jobs j where j.id = entry_photo_job(e.id)),
     e.submitted_at,
     coalesce((
       select jsonb_agg(jsonb_build_object('id', i.id, 'name', i.name, 'category', i.category,
