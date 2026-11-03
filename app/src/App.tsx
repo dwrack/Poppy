@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useState } from 'react'
 import type { Session } from '@supabase/supabase-js'
 import { AddItem } from './components/AddItem'
-import { Closet } from './components/Closet'
+import { Closet, type AddRequest } from './components/Closet'
 import { Friends } from './components/Friends'
 import { takeInviteFromUrl } from './lib/friends'
 import { Runway } from './components/Runway'
@@ -10,6 +10,7 @@ import { useAccountDb } from './lib/account'
 import { SignIn, useSession } from './lib/auth'
 import { SquadsProvider } from './lib/SquadsProvider'
 import { syncNow } from './lib/sync'
+import type { ClosetKind } from './types'
 
 type Tab = 'runway' | 'closet' | 'friends' | 'you'
 
@@ -35,7 +36,8 @@ function Home({ session }: { session: Session }) {
   const [invite, setInvite] = useState(() => takeInviteFromUrl())
   const [tab, setTab] = useState<Tab>(() => (invite ? 'friends' : 'closet'))
   const inviteUsed = useCallback(() => setInvite(null), [])
-  const [adding, setAdding] = useState(false)
+  const [adding, setAdding] = useState<AddRequest | null>(null)
+  const [closetView, setClosetView] = useState<ClosetKind>('mine')
 
   useEffect(() => {
     void syncNow()
@@ -44,13 +46,13 @@ function Home({ session }: { session: Session }) {
     return () => window.removeEventListener('focus', onFocus)
   }, [])
 
-  if (adding) return <AddItem onDone={() => setAdding(false)} />
+  if (adding) return <AddItem closet={adding.closet} prefill={adding.prefill} onDone={() => setAdding(null)} />
 
   return (
     <div className="flex min-h-full flex-col">
       <div className="flex-1">
-        {tab === 'closet' && <Closet onAdd={() => setAdding(true)} />}
-        {tab === 'runway' && <Runway userId={session.user.id} onAdd={() => setAdding(true)} onGoSquad={() => setTab('friends')} />}
+        {tab === 'closet' && <Closet view={closetView} onView={setClosetView} onAdd={(req) => setAdding(req ?? {})} />}
+        {tab === 'runway' && <Runway userId={session.user.id} onAdd={() => setAdding({})} onGoSquad={() => setTab('friends')} />}
         {tab === 'friends' && <Friends userId={session.user.id} invite={invite} onInviteUsed={inviteUsed} />}
         {tab === 'you' && <You email={session.user.email} userId={session.user.id} />}
       </div>

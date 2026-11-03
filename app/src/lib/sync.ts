@@ -10,6 +10,8 @@ type Row = {
   warmth: number; formality: number; seasons: string[]; brand: string | null; notes: string | null
   status: string; favourite: boolean; tucked: boolean; photo_path: string; cutout_path: string
   fabric: string | null; fit: string | null; feel: string | null; links: Item['links'] | null; size: string | null
+  /** v10. Missing before v10 is pasted; 'mine' for every old row after. */
+  closet?: string | null
   created_at: string; updated_at: string
 }
 
@@ -26,6 +28,10 @@ function toRow(item: Item, userId: string): Omit<Row, 'created_at' | 'updated_at
     notes: item.notes ?? null, status: item.status, favourite: item.favourite, tucked: item.tucked,
     photo_path: p.photo, cutout_path: p.cutout,
     fabric: item.fabric ?? null, fit: item.fit ?? null, feel: item.feel ?? null, links: item.links ?? [], size: item.size ?? null,
+    // Only sent when set: old pieces (no value) keep pushing before v10 adds the column and get its
+    // default. A wish piece, or one moved back to 'mine' with "I got it" (the upsert would otherwise
+    // leave the cloud row on 'wish'), fails per item before v10 and retries later.
+    ...(item.closet ? { closet: item.closet } : {}),
     created_at: new Date(item.createdAt).toISOString(), updated_at: new Date(item.updatedAt).toISOString(),
   }
 }
@@ -104,7 +110,20 @@ async function doPush() {
   }
 }
 
-/** Bring down anything in the cloud we don't have locally (new device, reinstall). Only into the signed-in account's own database. */
+/** A cloud row's fields as a local piece (everything but the photos and sync bookkeeping). */
+function fieldsOf(row: Row): Omit<Item, 'id' | 'photo' | 'cutout' | 'createdAt' | 'updatedAt' | 'synced'> {
+  return {
+    name: row.name, category: row.category as Item['category'], colours: row.colours as Item['colours'],
+    pattern: row.pattern as Item['pattern'], warmth: row.warmth as Item['warmth'], formality: row.formality as Item['formality'],
+    seasons: row.seasons as Item['seasons'], brand: row.brand ?? undefined, notes: row.notes ?? undefined,
+    status: row.status as Item['status'], favourite: row.favourite, tucked: row.tucked,
+    fabric: row.fabric ?? undefined, fit: row.fit ?? undefined, feel: row.feel ?? undefined, links: row.links ?? [], size: row.size ?? undefined,
+    // Undefined for 'mine' (as for old rows); the cloud row already says 'mine', so leaving it out of a push is right.
+    closet: row.closet === 'wish' ? 'wish' : undefined,
+  }
+}
+
+/** Bring down anything in the cloud we don't have locally (new device, reinstall), and newer fields for pieces we do. Only into the signed-in account's own database. */
 export async function pullAll() {
   const me = await signedInDb()
   if (!me) return
@@ -119,18 +138,25 @@ export async function pullAll() {
 
   for (const row of data as Row[]) {
     cloudIds.add(row.id)
-    if (localIds.has(row.id) || dead.has(row.id)) continue
+    if (dead.has(row.id)) continue
+    if (localIds.has(row.id)) {
+      // Changed on her other device since this one last saw it ("I got it", favourite, archive):
+      // take the newer fields, so a later edit here never pushes the stale ones back up.
+      // Pending local edits (synced 0) win and go up on the next push. Photos never change in place.
+      const it = await local.items.get(row.id)
+      const cloudAt = Date.parse(row.updated_at)
+      if (it?.synced === 1 && cloudAt > it.updatedAt && stillBound(local)) {
+        await local.items.update(row.id, { ...fieldsOf(row), updatedAt: cloudAt })
+      }
+      continue
+    }
     const [photo, cutout] = await Promise.all([
       supabase.storage.from(BUCKET).download(row.photo_path),
       supabase.storage.from(BUCKET).download(row.cutout_path),
     ])
     if (!photo.data || !cutout.data || !stillBound(local)) continue
     await local.items.put({
-      id: row.id, name: row.name, category: row.category as Item['category'], colours: row.colours as Item['colours'],
-      pattern: row.pattern as Item['pattern'], warmth: row.warmth as Item['warmth'], formality: row.formality as Item['formality'],
-      seasons: row.seasons as Item['seasons'], brand: row.brand ?? undefined, notes: row.notes ?? undefined,
-      status: row.status as Item['status'], favourite: row.favourite, tucked: row.tucked,
-      fabric: row.fabric ?? undefined, fit: row.fit ?? undefined, feel: row.feel ?? undefined, links: row.links ?? [], size: row.size ?? undefined,
+      id: row.id, ...fieldsOf(row),
       photo: photo.data, cutout: cutout.data,
       createdAt: Date.parse(row.created_at), updatedAt: Date.parse(row.updated_at), synced: 1,
     })

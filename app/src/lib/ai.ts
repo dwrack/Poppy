@@ -21,7 +21,15 @@ async function toBase64(blob: Blob, maxSide = 768): Promise<{ media_type: string
 
 async function call<T>(body: Record<string, unknown>): Promise<T> {
   const { data, error } = await supabase.functions.invoke('describe-item', { body })
-  if (error) throw new Error(error.message)
+  if (error) {
+    // On a 4xx/5xx the friendly { error } body sits on error.context (a Response).
+    const ctx = (error as { context?: unknown }).context
+    if (ctx instanceof Response) {
+      const msg = await ctx.clone().json().then((b: { error?: unknown }) => b?.error, () => undefined)
+      if (typeof msg === 'string' && msg) throw new Error(msg)
+    }
+    throw new Error(error.message)
+  }
   if (data?.error) throw new Error(data.error)
   return data as T
 }
@@ -33,6 +41,53 @@ export async function describePhoto(cutout: Blob, tag?: Blob): Promise<Descripti
 export async function findOnline(query: string, cutout?: Blob): Promise<ShopLink[]> {
   const res = await call<{ matches: ShopLink[] }>({ mode: 'find', query, image: cutout ? await toBase64(cutout, 512) : undefined })
   return res.matches ?? []
+}
+
+/** What describe-item mode 'import' sends back for a pasted shop link. */
+export interface ImportResult {
+  title: string
+  store: string
+  /** Price with currency as shown, e.g. "$28", or empty. */
+  price: string
+  url: string
+  image: { media_type: string; data: string }
+  description?: Description
+}
+
+/** Turns base64 (no data: prefix) into a Blob. */
+export function base64ToBlob(data: string, type = 'image/jpeg'): Blob {
+  const bin = atob(data)
+  const bytes = new Uint8Array(bin.length)
+  for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i)
+  return new Blob([bytes], { type })
+}
+
+/**
+ * Reads a shop link on the server: title, store, price and the product photo (plus a description when it can).
+ * Throws an Error with a message the UI can show. If the function has not been redeployed with 'import' yet,
+ * the error has name 'NeedsDeploy'.
+ */
+export async function importLink(url: string): Promise<ImportResult> {
+  let link = url.trim()
+  if (!link) throw new Error('Paste a link first')
+  if (!/^[a-z][a-z0-9+.-]*:\/\//i.test(link)) link = 'https://' + link
+  link = link.replace(/^http:\/\//i, 'https://')
+  if (!/^https:\/\//i.test(link)) throw new Error('Links need to start with https://')
+  if (link.length > 2000) throw new Error('That link is too long')
+  let res: ImportResult
+  try {
+    res = await call<ImportResult>({ mode: 'import', url: link })
+  } catch (e) {
+    const err = e instanceof Error ? e : new Error(String(e))
+    if (err.message === 'Unknown mode') {
+      const needs = new Error("Link import isn't switched on yet")
+      needs.name = 'NeedsDeploy'
+      throw needs
+    }
+    throw err
+  }
+  if (!res?.image?.data) throw new Error("Couldn't find a picture of the piece on that page")
+  return { ...res, title: res.title ?? '', store: res.store ?? '', price: res.price ?? '', url: res.url || link }
 }
 
 /** Free ways to find a piece: Google Lens on the photo, Google Shopping on the text. */

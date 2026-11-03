@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from 'react'
-import type { Category } from '../types'
+import { closetOf, type Category, type ClosetKind } from '../types'
 import { supabase, uniqueTopic } from './supabase'
 import { signPaths } from './friends'
 
@@ -27,13 +27,23 @@ export const MAX_PHOTO_PIECES = 5
  */
 export const PHOTO_ORDER: readonly Category[] = ['top', 'bottom', 'dress', 'outerwear', 'shoes', 'hat', 'scarf', 'bag', 'accessory']
 
-/** A piece for a photo: its id, and its category for the studio's order. */
-export interface PhotoPiece { id: string; category: Category }
+/**
+ * A piece for a photo: its id, its category for the studio's order, and
+ * which closet it is in. Wishlist pieces (closet 'wish') never go in a
+ * photo: the studio only draws clothes she owns (v10 refuses the job
+ * otherwise). They stay cutout cards beside the photo, like borrowed ones.
+ */
+export interface PhotoPiece { id: string; category: Category; closet?: ClosetKind | null }
 
-/** The item ids a photo of these pieces asks for: each once, in PHOTO_ORDER (pick order within a category), at most MAX_PHOTO_PIECES. */
+/** Her own pieces only: wishlist pieces are left out of every photo. */
+export function photoPieces<P extends Pick<PhotoPiece, 'closet'>>(pieces: P[]): P[] {
+  return pieces.filter((p) => closetOf(p) === 'mine')
+}
+
+/** The item ids a photo of these pieces asks for: each once, in PHOTO_ORDER (pick order within a category), at most MAX_PHOTO_PIECES. Wishlist pieces are dropped. */
 export function photoItemIds(pieces: PhotoPiece[]): string[] {
   const rank = (c: Category) => { const i = PHOTO_ORDER.indexOf(c); return i < 0 ? PHOTO_ORDER.length : i }
-  const unique = [...new Map(pieces.map((p) => [p.id, p])).values()]
+  const unique = [...new Map(photoPieces(pieces).map((p) => [p.id, p])).values()]
   return unique.sort((a, b) => rank(a.category) - rank(b.category)).slice(0, MAX_PHOTO_PIECES).map((p) => p.id)
 }
 
@@ -77,10 +87,13 @@ export function usePhotoAllowed() {
   return allowed
 }
 
-/** Ask the studio for a photo. Dress me: pieces from her own closet. Entry: her own pieces in that runway look. */
+/** Exact copy (WISHLIST decision 8): why Photo is off when every piece on is from her wishlist. */
+export const PHOTO_OWN_ONLY = 'Photos use clothes you own'
+
+/** Ask the studio for a photo. Dress me: pieces from her own closet. Entry: her own pieces in that runway look. Wishlist pieces never go in. */
 export async function queuePhoto(kind: PhotoKind, pieces: PhotoPiece[], entryId?: string): Promise<PhotoJob> {
   const item_ids = photoItemIds(pieces)
-  if (!item_ids.length) throw new Error('Put something on first.')
+  if (!item_ids.length) throw new Error(pieces.length ? `${PHOTO_OWN_ONLY}.` : 'Put something on first.')
   const { data, error } = await supabase.from('photo_jobs')
     .insert({ kind, item_ids, ...(kind === 'entry' ? { entry_id: entryId } : {}) })
     .select(JOB_COLUMNS).single()
@@ -94,20 +107,21 @@ export async function queuePhoto(kind: PhotoKind, pieces: PhotoPiece[], entryId?
  * switched photos on for her (photoAllowed). Borrowed pieces are dropped: a
  * friend's piece never goes onto her photo (her account can swap the image
  * behind it after the borrow was approved), it stays a cutout card beside it.
+ * Wishlist pieces are dropped the same way: she does not own them yet.
  */
 export function queueEntryPhoto(entryId: string, pieces: PhotoPiece[], borrowed: string[] = []) {
   const lent = new Set(borrowed)
-  const own = pieces.filter((p) => !lent.has(p.id))
+  const own = photoPieces(pieces).filter((p) => !lent.has(p.id))
   if (!own.length) return
   photoAllowed()
     .then((ok) => (ok ? queuePhoto('entry', own, entryId) : undefined))
     .catch(() => { /* table not pasted yet, or offline: the avatar covers it */ })
 }
 
-/** The pieces of a runway look that can go in its photo: hers, not the borrowed ones. */
-export function ownPieces(itemIds: string[], borrowed: string[] = []) {
-  const lent = new Set(borrowed)
-  return itemIds.filter((id) => !lent.has(id))
+/** The pieces of a runway look that can go in its photo: hers, not the borrowed ones, not the wishlist ones. */
+export function ownPieces(itemIds: string[], borrowed: string[] = [], wish: string[] = []) {
+  const skip = new Set([...borrowed, ...wish])
+  return itemIds.filter((id) => !skip.has(id))
 }
 
 /**
@@ -215,8 +229,9 @@ export function photoChip(job: PhotoJob | undefined, studioOnline: boolean): { l
  * Is this job a photo of the look as it stands? The rule entry_photo_job()
  * uses in v8-photoreal.sql: every piece of the job is still in the look,
  * and it has as many pieces as a photo holds (all of them, or
- * MAX_PHOTO_PIECES when the look has more). For a runway look, pass her
- * own pieces only (ownPieces).
+ * MAX_PHOTO_PIECES when the look has more). Pass her own pieces only:
+ * no borrowed and no wishlist pieces (ownPieces, photoPieces), the same
+ * pieces the server counts.
  */
 export function coversLook(job: Pick<PhotoJob, 'item_ids'>, look: string[]) {
   const ids = new Set(look)

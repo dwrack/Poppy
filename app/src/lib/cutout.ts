@@ -20,7 +20,11 @@ export async function downscale(file: Blob, maxSide = 1280): Promise<Blob> {
   const canvas = document.createElement('canvas')
   canvas.width = w
   canvas.height = h
-  canvas.getContext('2d')!.drawImage(bmp, 0, 0, w, h)
+  const ctx = canvas.getContext('2d')!
+  // JPEG has no transparency: paint white first so a see-through shop photo does not turn black.
+  ctx.fillStyle = '#fff'
+  ctx.fillRect(0, 0, w, h)
+  ctx.drawImage(bmp, 0, 0, w, h)
   bmp.close()
   return new Promise((res) => canvas.toBlob((b) => res(b!), 'image/jpeg', 0.9))
 }

@@ -15,9 +15,18 @@ export type Colour = (typeof COLOURS)[number]
 export const PATTERNS = ['solid', 'stripe', 'check', 'floral', 'print', 'texture'] as const
 export type Pattern = (typeof PATTERNS)[number]
 
-export interface ShopLink { title: string; store: string; url: string; price: string; exact: boolean }
+export interface ShopLink {
+  title: string; store: string; url: string; price: string; exact: boolean
+  /** The link she pasted in herself (link import). Kept through every "Search again"; Claude's finds never carry it. */
+  pasted?: boolean
+}
 
 export type ItemStatus = 'active' | 'laundry' | 'archived'
+
+/** Which closet a piece lives in. 'mine' = she owns it, 'wish' = wishlist (from a store or a link). Missing = 'mine'. */
+export type ClosetKind = 'mine' | 'wish'
+export const closetOf = (i: { closet?: ClosetKind | null }): ClosetKind => (i.closet === 'wish' ? 'wish' : 'mine')
+export const isWish = (i: { closet?: ClosetKind | null }) => closetOf(i) === 'wish'
 
 export interface Item {
   id: string
@@ -38,6 +47,8 @@ export interface Item {
   fit?: string
   feel?: string
   links?: ShopLink[]
+  /** Wishlist pieces have closet 'wish'. Old rows have no value and count as 'mine'. */
+  closet?: ClosetKind
   photo: Blob
   cutout: Blob
   createdAt: number

@@ -1,0 +1,58 @@
+# id, name, category, colours, pattern, fabric, fit, feel, warmth, formality, seasons, look (for the image prompt)
+S = {}
+S['starlight'] = dict(name='Starlight Atelier', tag='Red carpet and gowns', emoji='✨', items=[
+ ('blush-tulle-gown','blush tulle gown','dress',['pink'],'texture','tulle and sequins','fitted bodice, full ballerina skirt','twirl-ready, first-dance energy',2,5,['spring','summer'],'kids ball gown, blush pink tulle skirt, sparkly sequin bodice, thin straps'),
+ ('midnight-velvet-gown','midnight velvet gown','dress',['navy'],'solid','stretch velvet','long column, cap sleeves','old Hollywood after dark',3,5,['fall','winter'],'kids floor length gown, deep midnight navy velvet, cap sleeves, simple elegant column shape'),
+ ('silver-sequin-mini','silver sequin party dress','dress',['grey'],'texture','sequin on mesh','shift, midi length','disco ball in dress form',2,4,['winter'],'kids knee length party dress, all over silver sequins, short sleeves, straight shift shape'),
+ ('emerald-satin-gown','emerald satin gown','dress',['green'],'solid','duchess satin','sweetheart bodice, A-line skirt','emerald city premiere',2,5,['fall','winter'],'kids satin gown, emerald green, wide straps, A-line floor length skirt, a big bow at the back'),
+ ('gold-cape-gown','gold cape gown','dress',['yellow'],'texture','metallic chiffon','floaty with a sheer cape','golden hour on the steps',2,5,['spring','summer'],'kids gown in shimmering gold chiffon with a sheer flowing cape attached at the shoulders'),
+ ('ivory-faux-fur-stole','ivory faux fur stole','scarf',['cream'],'texture','faux fur','wraps around like a hug','instant movie star',4,5,['winter'],'ivory white faux fur stole wrap, soft and fluffy'),
+ ('crystal-tiara','crystal tiara','hat',['grey'],'solid','silver tone metal and crystals','sits on the crown','main character, obviously',1,5,['spring','summer','fall','winter'],'small sparkling silver crystal tiara for a child'),
+ ('satin-opera-gloves','satin opera gloves','accessory',['white'],'solid','stretch satin','above the elbow','fancy wave to the crowd',2,5,['fall','winter'],'pair of long white satin opera gloves for a child'),
+ ('pearl-clutch','pearl clutch','bag',['cream'],'texture','faux pearls','small top clasp','holds a lip gloss and a secret',1,5,['spring','summer','fall','winter'],'small evening clutch bag covered in faux pearls with a gold clasp'),
+ ('glitter-heels','glitter block heels','shoes',['pink'],'texture','glitter','low block heel, buckle strap','sparkle with every step',2,5,['spring','summer','fall','winter'],'pair of kids low block heel shoes covered in pink glitter, ankle straps'),
+ ('red-ruffle-gown','red ruffle gown','dress',['red'],'solid','layered organza','tiered ruffles to the floor','showstopper, full stop',2,5,['winter'],'kids floor length gown in bright red with tiered organza ruffles'),
+ ('lilac-cape','lilac velvet cape','outerwear',['purple'],'solid','crushed velvet','hooded, swingy','arrives before the music does',3,4,['fall','winter'],'kids hooded cape in lilac crushed velvet with a satin bow tie at the neck'),
+])
+S['trunk'] = dict(name='Once Upon a Trunk', tag='Costumes and fantasy', emoji='🧚', items=[
+ ('fairy-wings','fairy wings','accessory',['multi'],'print','iridescent film on wire','straps on like a backpack','light enough to fly',1,2,['spring','summer','fall','winter'],'pair of iridescent shimmering fairy wings with straps, pastel rainbow sheen'),
+ ('mermaid-skirt','mermaid sequin skirt','bottom',['blue'],'texture','flip sequins','long with a fishtail hem','splash zone',2,3,['summer'],'kids long skirt covered in turquoise and blue flip sequins with a fishtail flared hem'),
+ ('witch-hat','starry witch hat','hat',['purple'],'print','felt','tall and bent at the tip','cauldron chic',2,2,['fall'],'tall purple felt witch hat with little gold stars and a bent tip'),
+ ('hero-cape','superhero cape','outerwear',['red'],'solid','satin','long, ties in a bow','saves the day, then the runway',1,2,['spring','summer','fall','winter'],'kids bright red satin superhero cape with a gold lightning bolt'),
+ ('princess-crown','princess crown','hat',['yellow'],'solid','gold tone metal and gems','tall pointed crown','royal decree: twirl',1,4,['spring','summer','fall','winter'],'kids gold princess crown with pink and blue gems'),
+ ('dragon-hoodie','dragon hoodie','top',['green'],'print','fleece','oversized with spikes on the hood','cosy but fierce',4,1,['fall','winter'],'kids green fleece hoodie with soft dragon spikes down the hood and back'),
+ ('unicorn-horn-band','unicorn horn headband','hat',['multi'],'texture','satin and glitter','headband','pure magic',1,2,['spring','summer','fall','winter'],'headband with a glittery gold unicorn horn and pastel flowers'),
+ ('astronaut-jumpsuit','astronaut jumpsuit','dress',['white'],'print','cotton twill','zip front, roomy','one small step for fashion',3,2,['spring','summer','fall','winter'],'kids white astronaut jumpsuit with patches and zip front'),
+ ('pirate-coat','pirate captain coat','outerwear',['navy'],'solid','brushed wool blend','long with gold buttons','captain of the catwalk',4,3,['fall','winter'],'kids navy long pirate captain coat with gold buttons and cuffs'),
+ ('pumpkin-dress','pumpkin tutu dress','dress',['orange'],'solid','tulle','puffy tutu, green collar','pumpkin patch royalty',2,2,['fall'],'kids orange tulle tutu dress that looks like a pumpkin, green leaf collar'),
+ ('snow-queen-cape','snow queen cape','outerwear',['blue'],'texture','sheer organza with glitter','long and trailing','let it snow, dramatically',2,4,['winter'],'long sheer icy blue cape with silver glitter snowflakes'),
+ ('ruby-slippers','ruby sequin slippers','shoes',['red'],'texture','sequins','flats with a bow','click twice, go to the party',1,3,['spring','summer','fall','winter'],'pair of kids flat shoes covered in red sequins with a red bow'),
+])
+S['encore'] = dict(name='Encore Street', tag='Pop star and street', emoji='🎤', items=[
+ ('holo-bomber','holographic bomber','outerwear',['multi'],'texture','holographic nylon','cropped bomber','headliner arrival',3,2,['spring','fall'],'kids cropped bomber jacket in shiny holographic silver rainbow fabric'),
+ ('sequin-blazer','pink sequin blazer','outerwear',['pink'],'texture','sequin','boxy, sleeves pushed up','encore, encore',2,4,['spring','fall','winter'],'kids boxy blazer covered in hot pink sequins'),
+ ('platform-sneakers','platform sneakers','shoes',['white'],'solid','leather look','chunky platform sole','two inches closer to the stars',2,1,['spring','summer','fall','winter'],'pair of kids chunky white platform sneakers with a pastel sole'),
+ ('neon-shades','heart sunglasses','accessory',['pink'],'solid','plastic','oversized heart frames','paparazzi proof',1,1,['spring','summer'],'pair of oversized neon pink heart shaped kids sunglasses'),
+ ('bucket-hat','checker bucket hat','hat',['multi'],'check','cotton canvas','soft brim','festival front row',2,1,['spring','summer'],'kids bucket hat in pastel purple and green checkerboard'),
+ ('cargo-pants','glitter cargo pants','bottom',['black'],'texture','nylon with glitter','baggy, cuffed hems','dance practice, but famous',3,1,['spring','fall','winter'],'kids baggy black cargo pants with silver glitter and lots of pockets'),
+ ('tour-tee','tour tee','top',['black'],'print','cotton jersey','oversized, knotted at the side','merch table classic',2,1,['spring','summer','fall'],'kids oversized black t-shirt with a colorful star and lightning bolt graphic'),
+ ('star-mic-bag','star crossbody bag','bag',['purple'],'texture','glitter vinyl','small, long strap','hands free for the mic',1,2,['spring','summer','fall','winter'],'small purple glitter star shaped crossbody bag'),
+ ('fringe-jacket','silver fringe jacket','outerwear',['grey'],'texture','metallic faux leather','cropped with long fringe','the fringe does the dancing',3,3,['fall','winter'],'kids cropped silver metallic jacket with long fringe on the sleeves'),
+ ('tutu-skirt','rainbow tutu skirt','bottom',['multi'],'stripe','layered tulle','short and full','pop princess',1,2,['spring','summer'],'kids short layered tulle tutu skirt in rainbow stripes'),
+ ('chain-belt','charm chain belt','accessory',['grey'],'solid','silver tone chain','low rise, easy fit','jingles on the beat',1,2,['spring','summer','fall','winter'],'silver chain belt with little star and heart charms'),
+ ('puffer-vest','cloud puffer vest','outerwear',['white'],'solid','quilted nylon','cropped and puffy','cool when it is cold',4,1,['fall','winter'],'kids cropped white puffy cloud like puffer vest'),
+])
+S['seasondrop'] = dict(name='Season Drop', tag='Seasonal and themed', emoji='🍂', items=[
+ ('black-cat-ears','black cat ears','hat',['black'],'solid','faux fur','headband','black cat energy',1,2,['fall'],'headband with fluffy black cat ears and a little bow','Halloween'),
+ ('candy-corn-sweater','candy corn sweater','top',['orange'],'stripe','chunky knit','cropped, puff sleeves','sweet tooth season',4,1,['fall'],'kids cropped chunky knit sweater in candy corn stripes of yellow orange and white','Halloween'),
+ ('spider-web-skirt','spider web skirt','bottom',['black'],'print','mesh over tulle','short and floaty','spooky but make it cute',2,2,['fall'],'kids short black tulle skirt with a silver spider web pattern','Halloween'),
+ ('snowflake-sweater','snowflake sweater','top',['white'],'print','soft knit','relaxed','cocoa in hand',5,2,['winter'],'kids cosy white knit sweater with silver snowflakes','Winter Formal'),
+ ('velvet-bow-dress','velvet bow dress','dress',['red'],'solid','velvet','fitted top, full skirt, big bow','holiday party ready',3,4,['winter'],'kids red velvet party dress with a full skirt and a big satin bow','Winter Formal'),
+ ('faux-fur-earmuffs','fluffy earmuffs','hat',['white'],'texture','faux fur','over the ears','snow day sparkle',4,2,['winter'],'pair of fluffy white faux fur earmuffs with silver sparkle','Winter Formal'),
+ ('daisy-sundress','daisy sundress','dress',['yellow'],'floral','cotton poplin','tiered, tie straps','picnic in the sun',1,2,['spring','summer'],'kids pale yellow cotton sundress with little daisies and tie straps','Spring Break'),
+ ('rain-slicker','rainbow raincoat','outerwear',['multi'],'stripe','glossy PVC','hooded, roomy','rainy day rainbow',3,1,['spring'],'kids hooded raincoat in shiny rainbow stripes','Spring Break'),
+ ('pastel-cardigan','pastel cloud cardigan','top',['purple'],'texture','fuzzy knit','cropped','pastel everything',3,2,['spring'],'kids cropped fuzzy lavender cardigan with pearl buttons','Spring Break'),
+ ('lemon-swim-cover','lemon print cover-up','dress',['yellow'],'print','cotton gauze','loose, button front','lemonade stand',1,1,['summer'],'kids loose button front beach cover up dress with a lemon print','Summer'),
+ ('star-spangle-shorts','star denim shorts','bottom',['denim'],'print','denim','high rise, rolled hem','Fourth of July',1,1,['summer'],'kids high waist denim shorts with little red and white stars','Summer'),
+ ('straw-sun-hat','big straw sun hat','hat',['tan'],'texture','woven straw','wide brim, ribbon','sunset at the beach',1,2,['summer'],'kids wide brim woven straw sun hat with a pink ribbon','Summer'),
+])

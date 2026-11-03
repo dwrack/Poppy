@@ -55,6 +55,10 @@ Photos are off for every child until her parent says yes. For Poppy, once, in th
 
 8. `supabase/v9-family.sql`: per-squad ladder and borrowing for people in two squads (Penny in her friends' squad and Rack Family), wore-it photos visible to that squad only, and `leave_group()` so an owner who leaves hands the squad to the next member instead of orphaning it. LAST of all. Safe to re-run.
 
-Re-paste rule, whole chain: if you ever paste v2, v3, v5 or v6 again, paste v7 (unless it was only v2), then v8 if v4b was touched, then v9, in that order. Each later file carries the newer version of something an earlier one defines.
+## v4 wishlist closet (paste after v9)
+
+9. `supabase/v10-wishlist.sql`: `items.closet` ('mine' or 'wish', every existing piece is 'mine'), friends never see, borrow or style with a wishlist piece, wish pieces never go onto a photo-real render (Dress me or runway), runway cards carry each piece's closet for the "✨ wishlist" badge, and a piece with an open borrow request can't be moved to the wishlist. LAST of all. Safe to re-run. Until it is pasted, normal pieces sync as before and wishlist pieces wait on the phone.
+
+Re-paste rule, whole chain: if you ever paste v2, v3, v5 or v6 again, paste v7 (unless it was only v2), then v8 if v4b was touched, then v9, then v10, in that order. Each later file carries the newer version of something an earlier one defines (v10 re-creates functions from v2, v6, v4b and v8).
 
 Family setup steps (squad, sign-ups, photos): `FAMILY-SETUP.md`.

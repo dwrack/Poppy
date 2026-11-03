@@ -2,13 +2,15 @@ import { useLiveQuery } from 'dexie-react-hooks'
 import { useMemo, useState } from 'react'
 import { db } from '../db'
 import { presetsToLook } from '../lib/avatarSync'
-import { coversLook, queuePhoto, usePhotoAllowed, usePhotoUrl, useMyPhotoJobs, useStudio } from '../lib/photos'
+import { lookNote } from '../lib/designer'
+import { coversLook, photoPieces, PHOTO_OWN_ONLY, queuePhoto, usePhotoAllowed, usePhotoUrl, useMyPhotoJobs, useStudio } from '../lib/photos'
 import { useObjectUrl } from '../lib/useObjectUrl'
 import {
-  garmentOf, OUTFIT_SLOTS, SLOT_CATEGORY, SLOT_LABEL, slotOf, type Item, type Outfit, type OutfitSlot,
+  garmentOf, isWish, OUTFIT_SLOTS, SLOT_CATEGORY, SLOT_LABEL, slotOf, type Item, type Outfit, type OutfitSlot,
 } from '../types'
 import { Chip } from '../components/Chip'
 import { PhotoChip } from '../components/PhotoChip'
+import { useMyName } from '../components/ItemSheet'
 import AvatarScene from './AvatarScene'
 import { MOVE_LABEL, MOVES, type UiMove } from './anim'
 
@@ -18,7 +20,8 @@ const MOVE_EMOJI: Record<UiMove, string> = { idle: '🧍', walk: '🚶', sit: '�
 /**
  * Dress me: her avatar, her closet, tap a piece to put it on. Reached from
  * the Closet tab. Pieces come from Dexie (active only), the look from her
- * avatar presets, height from her profile.
+ * avatar presets, height from her profile. Wishlist pieces are offered too
+ * (try before you buy, badged ✨), but only her own pieces go in a photo.
  */
 export default function DressMe({ onClose }: { onClose: () => void }) {
   const items = useLiveQuery(() => db.items.where('status').equals('active').toArray(), []) ?? NONE
@@ -63,16 +66,23 @@ export default function DressMe({ onClose }: { onClose: () => void }) {
 
   const inSlot = items.filter((i) => i.category === SLOT_CATEGORY[slot])
   const wornItems = OUTFIT_SLOTS.map((s) => ({ slot: s, item: worn[s] ? byId.get(worn[s]!) : undefined })).filter((x) => x.item)
-  const wornIds = wornItems.map((w) => w.item!.id)
+  // the photo is of her own pieces only; wishlist pieces stay cards beside it
+  const ownWorn = photoPieces(wornItems.map((w) => w.item!))
+  const wornIds = ownWorn.map((i) => i.id)
+  const allWish = wornItems.length > 0 && wornIds.length === 0
   const job = allowed ? photos.latest : undefined
   const photoUrl = usePhotoUrl(job?.status === 'done' ? job.result_path : null)
   const showPhoto = !!photoUrl && (view && view.job === job?.id ? view.photo : true)
   const earlier = !!job && wornIds.length > 0 && !coversLook(job, wornIds)
+  const name = useMyName()
+  // the backstage note on the look as it stands (pure and cheap, so worked out each render)
+  const note = wornItems.length ? lookNote(wornItems.map((w) => w.item!), name) : ''
+  const [noteOpen, setNoteOpen] = useState(false)
 
   async function askForPhoto() {
     if (!allowed || !wornIds.length || asking) return
     setAsking(true); setPhotoErr(undefined)
-    const pieces = wornItems.map(({ item }) => ({ id: item!.id, category: item!.category }))
+    const pieces = ownWorn.map((i) => ({ id: i.id, category: i.category, closet: i.closet }))
     try { photos.add(await queuePhoto('dressme', pieces)) } catch (x) { setPhotoErr((x as Error).message) } finally { setAsking(false) }
   }
 
@@ -110,6 +120,7 @@ export default function DressMe({ onClose }: { onClose: () => void }) {
         <div className="absolute bottom-2 left-2 z-20 flex max-w-[70%] flex-col items-start gap-1">
           <PhotoChip job={job} online={online} note={earlier ? 'earlier look' : undefined} />
           {photoErr && <p className="rounded-lg bg-white/90 px-2 py-1 text-[11px] font-semibold text-poppy">{photoErr}</p>}
+          {allowed && allWish && <p className="rounded-lg bg-white/90 px-2 py-1 text-[11px] font-semibold text-mute" data-testid="photo-own-only">{PHOTO_OWN_ONLY}</p>}
           {allowed && (
             <button onClick={askForPhoto} disabled={!wornIds.length || asking} className="rounded-full bg-poppy px-3 py-1.5 text-xs font-bold text-white shadow-md shadow-poppy/30 disabled:opacity-40" data-testid="photo-button">
               {asking ? '…' : '📸 Photo'}
@@ -121,6 +132,17 @@ export default function DressMe({ onClose }: { onClose: () => void }) {
           {wornItems.map(({ slot: s, item }) => <WornCard key={s} slot={s} item={item!} onRemove={() => toggle(item!)} />)}
         </div>
       </div>
+
+      {note && (
+        <div
+          onClick={() => setNoteOpen((o) => !o)}
+          className="mx-3 mt-2 cursor-pointer rounded-2xl bg-sage/10 px-3 py-2 ring-1 ring-sage/20"
+          data-testid="designer-note"
+        >
+          <div className="text-[11px] font-extrabold text-sage">✂️ Designer’s notes</div>
+          <p className={'text-[12px] leading-snug text-ink/80 ' + (noteOpen ? '' : 'line-clamp-2')}>{note}</p>
+        </div>
+      )}
 
       <div className="flex justify-between gap-1.5 px-3 pt-3" data-testid="moves">
         {MOVES.map((m) => (
@@ -155,8 +177,9 @@ function Piece({ item, on, onClick }: { item: Item; on: boolean; onClick: () => 
   const url = useObjectUrl(item.cutout)
   return (
     <button onClick={onClick} className="w-[88px] shrink-0 text-left active:scale-95" data-testid="piece">
-      <div className={'checker aspect-square overflow-hidden rounded-2xl ' + (on ? 'ring-[3px] ring-poppy' : 'ring-1 ring-black/10')}>
+      <div className={'checker relative aspect-square overflow-hidden rounded-2xl ' + (on ? 'ring-[3px] ring-poppy' : 'ring-1 ring-black/10')}>
         {url && <img src={url} alt={item.name} className="h-full w-full object-contain p-1" />}
+        {isWish(item) && <WishBadge />}
       </div>
       <div className="mt-1 truncate px-0.5 text-[11px] font-semibold">{item.name || item.colours.join(' ')}</div>
     </button>
@@ -168,7 +191,13 @@ function WornCard({ slot, item, onRemove }: { slot: OutfitSlot; item: Item; onRe
   return (
     <button onClick={onRemove} className="checker relative h-14 w-14 overflow-hidden rounded-xl shadow ring-1 ring-black/10 active:scale-95" title={`Take off ${SLOT_LABEL[slot]}`}>
       {url && <img src={url} alt="" className="h-full w-full object-contain p-0.5" />}
+      {isWish(item) && <WishBadge />}
       <span className="absolute bottom-0 left-0 right-0 bg-ink/70 text-center text-[9px] font-bold text-white">{SLOT_LABEL[slot]}</span>
     </button>
   )
+}
+
+/** A wishlist piece: hers to try on, not hers yet. */
+function WishBadge() {
+  return <span className="absolute top-0.5 right-0.5 rounded-full bg-butter px-1 text-[10px] leading-tight shadow-sm" title="Wishlist piece">✨</span>
 }

@@ -1,5 +1,6 @@
 import { Suspense, useEffect, useMemo, useState, type ReactNode } from 'react'
 import { outfitOf, type EntryCard } from '../lib/game'
+import { isWish } from '../types'
 import type { Move } from '../avatar/anim'
 import { LazyAvatarScene, webglOk } from './avatarLazy'
 
@@ -75,8 +76,9 @@ export function AvatarStage({ card, mode, podium, fallback, className }: {
         <>
           <div className="pointer-events-none absolute top-2 right-2 flex flex-col gap-1" data-testid="piece-cards">
             {card.pieces.map((p) => (
-              <div key={p.id} className="checker h-11 w-11 overflow-hidden rounded-lg bg-white shadow ring-1 ring-black/10">
+              <div key={p.id} className="checker relative h-11 w-11 overflow-hidden rounded-lg bg-white shadow ring-1 ring-black/10">
                 {p.url && <img src={p.url} alt={p.name} className="h-full w-full object-contain p-0.5" />}
+                {isWish(p) && <span className="absolute top-0 right-0 rounded-bl-md bg-butter px-0.5 text-[9px] leading-tight" title="Wishlist piece">✨</span>}
               </div>
             ))}
           </div>

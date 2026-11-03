@@ -14,6 +14,13 @@ trick in AVATAR-STEP2.md).
 ## What shipped
 
 **Database** (`supabase/v8-photoreal.sql`, paste after v7, see V3-PASTE-ORDER.md)
+- Wishlist (`supabase/v10-wishlist.sql`, paste after v9): a wishlist piece
+  (`items.closet = 'wish'`) never goes onto a photo either. The insert
+  trigger refuses any job with one ("Photos use clothes you own"), and
+  `entry_photo_job` counts only her own closet pieces in a runway look, so
+  wish pieces stay cutout cards beside the photo like borrowed ones. v10
+  re-creates `photo_jobs_before_insert`, `entry_photo_job` and
+  `round_entry_cards_v2`: if you ever paste v8 again, paste v10 after it.
 - `photoreal_children`: a parent's yes, one row per child (user_id,
   approved_by, approved_at). Only the service role writes it (SQL
   Editor); a player reads her own row. Without one the insert trigger

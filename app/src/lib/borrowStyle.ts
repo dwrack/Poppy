@@ -2,7 +2,7 @@ import { useCallback, useEffect, useState } from 'react'
 import { supabase, uniqueTopic } from './supabase'
 import { describeItems, signPaths, type Borrow, type FriendItem, type Member } from './friends'
 import type { Chip } from './game'
-import type { Category } from '../types'
+import { closetOf, type Category } from '../types'
 import type { RemotePiece } from '../components/Stack'
 
 /* ---------- Borrow for the round ---------- */
@@ -63,7 +63,8 @@ export async function askToBorrowForRound(item: FriendItem, roundId: string) {
 export async function loadFriendRack(memberId: string): Promise<FriendItem[]> {
   const { data, error } = await supabase.rpc('friend_items', { member: memberId })
   if (error) throw friendly(error)
-  const items = (data ?? []) as FriendItem[]
+  // Friends never see a wishlist (the server leaves wish pieces out from v10; this covers an older one).
+  const items = ((data ?? []) as FriendItem[]).filter((i) => closetOf(i) === 'mine')
   if (items.length) {
     const byPath = await signPaths(items.map((i) => i.cutout_path))
     for (const i of items) i.cutoutUrl = byPath.get(i.cutout_path)

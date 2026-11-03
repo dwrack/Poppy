@@ -25,7 +25,8 @@ export default defineConfig({
       },
       workbox: {
         maximumFileSizeToCacheInBytes: 6 * 1024 * 1024,
-        globPatterns: ['**/*.{js,css,html,svg}'],
+        // webp: the in-app store pieces (public/stores), so the stores open offline.
+        globPatterns: ['**/*.{js,css,html,svg,webp}'],
       },
     }),
   ],

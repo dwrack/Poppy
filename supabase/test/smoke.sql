@@ -729,5 +729,185 @@ do $$ begin
 end $$;
 reset role;
 
+-- v10 wishlist ---------------------------------------------------------------
+-- Poppy (a) adds a gown from a store to her wishlist. Bea (b, Smoke Squad) never
+-- sees it, can't borrow it and can't style Poppy with it. Poppy can walk the
+-- runway in it, but it never goes onto a photo.
+insert into items (id, user_id, name, category, photo_path, cutout_path, colours, pattern, closet) values
+  ('10000000-0000-0000-0000-0000000000af', '00000000-0000-0000-0000-00000000000a', 'a wish gown', 'dress', 'a/pw.jpg', 'a/cw.png', '{gold}', 'solid', 'wish')
+on conflict do nothing;
+do $$ begin
+  assert (select closet from items where id = '10000000-0000-0000-0000-00000000000a') = 'mine', 'v10: pieces from before say mine';
+  begin
+    update items set closet = 'other' where id = '10000000-0000-0000-0000-0000000000af';
+    raise exception 'v10: closet ''other'' was accepted';
+  exception when check_violation then null;
+  end;
+end $$;
+-- Smoke Squad's next round opens now (Poppy still owns Smoke Squad).
+select pg_temp.act_as('a');
+set role authenticated;
+select set_config('smoke.rw', start_round_now(current_setting('smoke.g')::uuid)::text, false);
+reset role;
+select pg_temp.act_as('b');
+set role authenticated;
+do $$ declare rw uuid := current_setting('smoke.rw')::uuid; begin
+  assert (select count(*) from friend_items('00000000-0000-0000-0000-00000000000a')) > 0, 'v10: b still sees a''s closet';
+  assert not exists (select 1 from friend_items('00000000-0000-0000-0000-00000000000a') where id = '10000000-0000-0000-0000-0000000000af'),
+    'v10: b sees a''s wish piece in friend_items';
+  assert (select count(*) from items where id = '10000000-0000-0000-0000-0000000000af') = 0, 'v10: b reads a''s wish piece directly';
+  begin
+    insert into borrow_requests (item_id, owner_id) values ('10000000-0000-0000-0000-0000000000af', '00000000-0000-0000-0000-00000000000a');
+    raise exception 'v10: b asked to borrow a wish piece';
+  exception when insufficient_privilege then null;
+  end;
+  begin
+    insert into borrow_requests (item_id, owner_id, round_id) values ('10000000-0000-0000-0000-0000000000af', '00000000-0000-0000-0000-00000000000a', rw);
+    raise exception 'v10: b asked to borrow a wish piece for the round';
+  exception when insufficient_privilege then null;
+  end;
+  begin
+    insert into styled_looks (round_id, to_user, item_ids, message_chip)
+      values (rw, '00000000-0000-0000-0000-00000000000a', '{10000000-0000-0000-0000-00000000000a,10000000-0000-0000-0000-0000000000af}', 'brave');
+    raise exception 'v10: b styled a with a wish piece';
+  exception when insufficient_privilege then null;
+  end;
+  -- her own closet still works for styling
+  insert into styled_looks (round_id, to_user, item_ids, message_chip)
+    values (rw, '00000000-0000-0000-0000-00000000000a', '{10000000-0000-0000-0000-00000000000a}', 'fit');
+end $$;
+reset role;
+-- Her wish piece's files are hers only; her closet files stay shared with the squad.
+update items set photo_path = '00000000-0000-0000-0000-00000000000a/10000000-0000-0000-0000-0000000000af/photo.jpg',
+                 cutout_path = '00000000-0000-0000-0000-00000000000a/10000000-0000-0000-0000-0000000000af/cutout.png'
+  where id = '10000000-0000-0000-0000-0000000000af';
+insert into storage.objects (bucket_id, name) values
+  ('closet', '00000000-0000-0000-0000-00000000000a/10000000-0000-0000-0000-0000000000af/photo.jpg'),
+  ('closet', '00000000-0000-0000-0000-00000000000a/10000000-0000-0000-0000-0000000000af/cutout.png'),
+  ('closet', '00000000-0000-0000-0000-00000000000a/10000000-0000-0000-0000-00000000000a/cutout.png');
+-- An owned piece she put away (archived) can't be borrowed either.
+insert into items (id, user_id, name, category, photo_path, cutout_path, colours, pattern, status) values
+  ('10000000-0000-0000-0000-0000000000ae', '00000000-0000-0000-0000-00000000000a', 'a put-away tee', 'top', 'a/pe.jpg', 'a/ce.png', '{red}', 'solid', 'archived')
+on conflict do nothing;
+select pg_temp.act_as('b');
+set role authenticated;
+do $$ begin
+  assert (select count(*) from storage.objects where name like '00000000-0000-0000-0000-00000000000a/10000000-0000-0000-0000-0000000000af/%') = 0,
+    'v10: b cannot read a''s wish piece photo or cutout';
+  assert (select count(*) from storage.objects where name = '00000000-0000-0000-0000-00000000000a/10000000-0000-0000-0000-00000000000a/cutout.png') = 1,
+    'v10: b still reads a''s closet files';
+  begin
+    insert into borrow_requests (item_id, owner_id) values ('10000000-0000-0000-0000-0000000000ae', '00000000-0000-0000-0000-00000000000a');
+    raise exception 'v10: b asked to borrow a put-away piece';
+  exception when insufficient_privilege then null;
+  end;
+end $$;
+reset role;
+select pg_temp.act_as('a');
+set role authenticated;
+do $$ begin
+  assert (select count(*) from storage.objects where name like '00000000-0000-0000-0000-00000000000a/10000000-0000-0000-0000-0000000000af/%') = 2,
+    'v10: a reads her own wish piece files';
+end $$;
+reset role;
+insert into photoreal_children (user_id, approved_by) values ('00000000-0000-0000-0000-00000000000a', 'smoke: a''s parent') on conflict do nothing;
+select pg_temp.act_as('a');
+set role authenticated;
+do $$ declare rw uuid := current_setting('smoke.rw')::uuid; ew uuid; j uuid; begin
+  insert into entries (round_id, outfit)
+    values (rw, '{"items":["10000000-0000-0000-0000-0000000000af","10000000-0000-0000-0000-00000000000a"],"borrowed":[]}')
+    returning id into ew;
+  perform set_config('smoke.ew', ew::text, false);
+  assert (select p->>'closet' from round_entry_cards_v2(rw) c, jsonb_array_elements(c.pieces) p
+          where p->>'id' = '10000000-0000-0000-0000-0000000000af') = 'wish', 'v10: cards mark the wish piece';
+  assert (select p->>'closet' from round_entry_cards_v2(rw) c, jsonb_array_elements(c.pieces) p
+          where p->>'id' = '10000000-0000-0000-0000-00000000000a') = 'mine', 'v10: cards mark her own piece';
+  begin
+    insert into photo_jobs (kind, item_ids) values ('dressme', '{10000000-0000-0000-0000-00000000000a,10000000-0000-0000-0000-0000000000af}');
+    raise exception 'v10: a Dress me photo with a wish piece was accepted';
+  exception when raise_exception then
+    if sqlerrm not like 'Photos use clothes you own%' then raise; end if;
+  end;
+  begin
+    insert into photo_jobs (kind, entry_id, item_ids) values ('entry', ew, '{10000000-0000-0000-0000-0000000000af,10000000-0000-0000-0000-00000000000a}');
+    raise exception 'v10: a runway photo with a wish piece was accepted';
+  exception when raise_exception then
+    if sqlerrm not like 'Photos use clothes you own%' then raise; end if;
+  end;
+  insert into photo_jobs (kind, entry_id, item_ids) values ('entry', ew, '{10000000-0000-0000-0000-00000000000a}') returning id into j;
+  perform set_config('smoke.jw', j::text, false);
+end $$;
+reset role;
+-- The worker renders it and the parent approves: that photo stands for the look, wish piece and all.
+update photo_jobs set status = 'done', result_path = user_id::text || '/' || id::text || '.jpg', finished_at = now(), worker = 'smoke'
+  where id = current_setting('smoke.jw')::uuid;
+do $$ begin
+  assert entry_photo_job(current_setting('smoke.ew')::uuid) = current_setting('smoke.jw')::uuid,
+    'v10: entry_photo_job ignores the wish piece in the look';
+end $$;
+-- After the reveal the squad sees the wish piece she walked in, as a cutout card (never its photo).
+update rounds set status = 'reveal' where id = current_setting('smoke.rw')::uuid;
+select pg_temp.act_as('b');
+set role authenticated;
+do $$ begin
+  assert (select count(*) from storage.objects where name = '00000000-0000-0000-0000-00000000000a/10000000-0000-0000-0000-0000000000af/cutout.png') = 1,
+    'v10: after the reveal the squad sees the cutout of a wish piece on the runway';
+  assert (select count(*) from storage.objects where name = '00000000-0000-0000-0000-00000000000a/10000000-0000-0000-0000-0000000000af/photo.jpg') = 0,
+    'v10: the wish piece''s own photo stays hers after the reveal';
+end $$;
+reset role;
+select pg_temp.act_as('c');
+set role authenticated;
+do $$ begin
+  assert (select count(*) from storage.objects where name like '00000000-0000-0000-0000-00000000000a/10000000-0000-0000-0000-0000000000af/%') = 0,
+    'v10: an outsider never sees a wish piece''s files';
+end $$;
+reset role;
+-- A piece out on loan can't move to the wishlist; others can, and back ("I got it!").
+insert into borrow_requests (item_id, owner_id, borrower_id, status) values
+  ('10000000-0000-0000-0000-0000000000a3', '00000000-0000-0000-0000-00000000000a', '00000000-0000-0000-0000-00000000000b', 'out');
+select pg_temp.act_as('a');
+set role authenticated;
+do $$ begin
+  begin
+    update items set closet = 'wish' where id = '10000000-0000-0000-0000-0000000000a3';
+    raise exception 'v10: a lent piece moved to the wishlist';
+  exception when raise_exception then
+    if sqlerrm not like 'A friend asked to borrow this piece%' then raise; end if;
+  end;
+  update items set closet = 'mine' where id = '10000000-0000-0000-0000-0000000000af';
+  assert (select closet from items where id = '10000000-0000-0000-0000-0000000000af') = 'mine', 'v10: I got it! moves a wish piece into her closet';
+  update items set closet = 'wish' where id = '10000000-0000-0000-0000-0000000000af';
+  assert (select closet from items where id = '10000000-0000-0000-0000-0000000000af') = 'wish', 'v10: a piece with no open borrow can go to the wishlist';
+end $$;
+reset role;
+
+-- The lock holds while a request is only asked for or agreed, not just while the piece is out.
+insert into borrow_requests (item_id, owner_id, borrower_id, status) values
+  ('10000000-0000-0000-0000-0000000000a4', '00000000-0000-0000-0000-00000000000a', '00000000-0000-0000-0000-00000000000b', 'requested'),
+  ('10000000-0000-0000-0000-0000000000a5', '00000000-0000-0000-0000-00000000000a', '00000000-0000-0000-0000-00000000000b', 'approved');
+select pg_temp.act_as('a');
+set role authenticated;
+do $$ begin
+  begin
+    update items set closet = 'wish' where id = '10000000-0000-0000-0000-0000000000a4';
+    raise exception 'v10: a requested piece moved to the wishlist';
+  exception when raise_exception then
+    if sqlerrm not like 'A friend asked to borrow this piece%' then raise; end if;
+  end;
+  begin
+    update items set closet = 'wish' where id = '10000000-0000-0000-0000-0000000000a5';
+    raise exception 'v10: an approved piece moved to the wishlist';
+  exception when raise_exception then
+    if sqlerrm not like 'A friend asked to borrow this piece%' then raise; end if;
+  end;
+  -- Once the lent piece is home (returned), it can go.
+  update borrow_requests set status = 'returned' where item_id = '10000000-0000-0000-0000-0000000000a3' and status = 'out';
+  update items set closet = 'wish' where id = '10000000-0000-0000-0000-0000000000a3';
+  assert (select closet from items where id = '10000000-0000-0000-0000-0000000000a3') = 'wish', 'v10: a returned piece can go to the wishlist';
+  update items set closet = 'mine' where id = '10000000-0000-0000-0000-0000000000a3';
+end $$;
+reset role;
+
 \pset tuples_only off
 select 'SMOKE ASSERTS PASSED' as result;

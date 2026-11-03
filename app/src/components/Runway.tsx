@@ -1,17 +1,19 @@
 import { useLiveQuery } from 'dexie-react-hooks'
 import { useCallback, useEffect, useMemo, useState, type CSSProperties, type ReactNode } from 'react'
 import { db } from '../db'
+import { lookNote } from '../lib/designer'
+import { pushPending } from '../lib/sync'
 import { useBorrowedPieces, useRoundBorrows, useStyledLooks, wearStyledLook, type StyledLook } from '../lib/borrowStyle'
 import type { Borrow, Member } from '../lib/friends'
 import { useSquad, type Squad } from '../lib/squads'
 import {
   CHIPS, CHIP_LABEL, castVote, countdown, loadLookbook, loadMyEntry, loadMyVotes, loadResults, loadRunway,
-  packFor, phaseEnds, rank, seededShuffle, setSquadTimeZone, startRoundNow, submitEntry, useActivePack, useRound, useSubmitted, SEASON_ROUNDS,
+  packFor, phaseEnds, rank, seededShuffle, setSquadTimeZone, startRoundNow, submitEntry, useActivePack, useRound, useSubmitted, wishPieces, SEASON_ROUNDS,
   type Chip, type EntryCard, type MyEntry, type PastRound, type Result, type Round, type Vote,
 } from '../lib/game'
 import { coversLook, ownPieces, queueEntryPhoto, useMyPhotoJobs, usePhotoAllowed, useStudio, type PhotoPiece } from '../lib/photos'
 import { useObjectUrl } from '../lib/useObjectUrl'
-import { CATEGORIES, CATEGORY_LABEL, type Category, type Item } from '../types'
+import { CATEGORIES, CATEGORY_LABEL, isWish, type Category, type Item } from '../types'
 import { AvatarStage } from './AvatarStage'
 import { BorrowTab } from './BorrowTab'
 import { Chip as ChipButton } from './Chip'
@@ -132,6 +134,9 @@ function OpenRound({ round, userId, members, now, onAdd }: { round: Round; userI
   const asked = borrows.filter((b) => b.borrower_id === userId)
   const { pieces: borrowed, loading: borrowsLoading } = useBorrowedPieces(asked, members, borrowsLoaded)
   const { looks, refresh: refreshLooks } = useStyledLooks(round.id)
+  // her pieces on this phone, to know which of the look's pieces are wishlist ones (never in its photo)
+  const entryIds = entry?.outfit.items ?? []
+  const closetItems = useLiveQuery(() => db.items.bulkGet(entryIds), [entryIds.join(',')])
   const forMe = looks.filter((l) => l.to_user === userId)
   const sent = looks.filter((l) => l.from_user === userId)
 
@@ -179,6 +184,8 @@ function OpenRound({ round, userId, members, now, onAdd }: { round: Round; userI
   }
 
   const styledBy = wornId ? forMe.find((l) => l.id === wornId)?.from_name : undefined
+  // undefined until her pieces load from this phone, so the chip never guesses
+  const photoLook = closetItems ? ownLookIn(entry.outfit.items, entry.outfit.borrowed, closetItems) : undefined
   const lent = borrowed.filter((p) => entry.outfit.items.includes(p.id))
   return (
     <>
@@ -193,7 +200,7 @@ function OpenRound({ round, userId, members, now, onAdd }: { round: Round; userI
         </div>
         {styledBy && <p className="mt-2 text-center text-xs font-bold text-poppy">✨ Styled by {styledBy}</p>}
         {lent.length > 0 && <p className="mt-1 text-center text-xs text-mute">Borrowed: {lent.map((p) => `${p.name} from ${p.owner}`).join(', ')}</p>}
-        <EntryPhoto entryId={entry.id} look={ownPieces(entry.outfit.items, entry.outfit.borrowed)} />
+        {photoLook && <EntryPhoto entryId={entry.id} look={photoLook} />}
         <p className="mt-3 text-center text-xs text-mute">Nobody sees it until the runway. No copying possible.</p>
       </section>
       <StyledLooks looks={forMe} wornId={wornId} onWear={wear} />
@@ -202,10 +209,19 @@ function OpenRound({ round, userId, members, now, onAdd }: { round: Round; userI
   )
 }
 
-/** Her own pieces of a look with their categories, from her closet on this phone (a styled look is built from it). */
+/** Her own pieces of a look with their categories and closet, from her closet on this phone (a styled look is built from it). queueEntryPhoto drops the wishlist ones. */
 async function closetPieces(ids: string[]): Promise<PhotoPiece[]> {
   const items = await db.items.bulkGet(ids)
-  return items.flatMap((it) => (it ? [{ id: it.id, category: it.category }] : []))
+  return items.flatMap((it) => (it ? [{ id: it.id, category: it.category, closet: it.closet }] : []))
+}
+
+/**
+ * The pieces of her look a photo covers, the same way the server works it out (entry_photo_job):
+ * her own closet pieces that still exist. Borrowed, wishlist and deleted pieces drop out.
+ */
+function ownLookIn(ids: string[], borrowed: string[] | undefined, items: (Item | undefined)[]): string[] {
+  const own = new Set(items.flatMap((i) => (i && !isWish(i) ? [i.id] : [])))
+  return ownPieces(ids, borrowed).filter((id) => own.has(id))
 }
 
 /** Nothing photo-real on the runway card unless a parent switched it on for her (photoreal_children). */
@@ -276,16 +292,28 @@ function DressingRoom({ round, userId, members, asked, borrowed, borrowsLoading,
   // What is on the stack right now, in order, with who lent it.
   const worn = picked.flatMap((id) => {
     const mine = items.find((i) => i.id === id)
-    if (mine) return [{ id, label: mine.name || CATEGORY_LABEL[mine.category], category: mine.category }]
+    if (mine) return [{ id, label: (isWish(mine) ? '✨ ' : '') + (mine.name || CATEGORY_LABEL[mine.category]), category: mine.category, closet: mine.closet }]
     const b = borrowed.find((p) => p.id === id)
-    return b ? [{ id, label: `${b.name} · from ${b.owner}`, category: b.category }] : []
+    return b ? [{ id, label: `${b.name} · from ${b.owner}`, category: b.category, closet: undefined }] : []
   })
 
   async function send() {
     if (borrowsLoading) return // a saved look's borrowed pieces are not in `worn` yet; sending now would strip them
     setBusy(true); setErr(undefined)
-    const pieces = worn.map(({ id, category }) => ({ id, category })) // drops anything that is no longer yours or no longer a yes (borrows are loaded by now)
-    try { await onSubmit(pieces, pieces.filter((p) => borrowedIds.has(p.id)).map((p) => p.id)) } catch (x) { setErr((x as Error).message) } finally { setBusy(false) }
+    // drops anything that is no longer yours or no longer a yes (borrows are loaded by now); closet rides along so the photo skips wishlist pieces
+    const pieces: PhotoPiece[] = worn.map(({ id, category, closet }) => ({ id, category, closet }))
+    try {
+      // The server only takes pieces it has a copy of, so one still saving (just added, offline,
+      // or a wishlist piece before v10 is pasted) gets a friendly line instead of a refusal.
+      const own = pieces.filter((p) => !borrowedIds.has(p.id)).map((p) => p.id)
+      if ((await db.items.bulkGet(own)).some((i) => i?.synced === 0)) await pushPending()
+      const saving = (await db.items.bulkGet(own)).find((i) => i?.synced === 0)
+      if (saving) {
+        setErr(`Still saving ${isWish(saving) ? '✨ ' : ''}${saving.name || CATEGORY_LABEL[saving.category]}. Try again in a minute, or take it off to send now.`)
+        return
+      }
+      await onSubmit(pieces, pieces.filter((p) => borrowedIds.has(p.id)).map((p) => p.id))
+    } catch (x) { setErr((x as Error).message) } finally { setBusy(false) }
   }
 
   return (
@@ -358,6 +386,7 @@ function PickTile({ item, n, onClick }: { item: Item; n: number; onClick: () => 
         {url && <img src={url} alt={item.name} className="h-full w-full object-contain p-1.5" loading="lazy" />}
       </div>
       {on && <span className="absolute top-1.5 right-1.5 flex h-6 w-6 items-center justify-center rounded-full bg-poppy text-xs font-extrabold text-white">{n}</span>}
+      {isWish(item) && <span className="absolute bottom-7 left-1.5 rounded-full bg-butter px-1.5 py-0.5 text-[10px] font-extrabold text-ink shadow-sm">✨ wishlist</span>}
       <div className="mt-1 truncate px-0.5 text-xs font-semibold">{item.name || CATEGORY_LABEL[item.category]}</div>
     </button>
   )
@@ -418,6 +447,7 @@ function Show({ round, userId, now }: { round: Round; userId: string; now: numbe
                 <span className="text-lg font-extrabold">{card.user_id === userId ? 'You' : card.display_name}</span>
               </div>
               <Credits card={card} />
+              <DesignerNote card={card} theme={round.theme} />
               {card.user_id === userId ? (
                 <p className="mt-2 text-center text-sm text-mute">That’s you ✨ No voting for yourself.</p>
               ) : (
@@ -462,14 +492,43 @@ function Show({ round, userId, now }: { round: Round; userId: string; now: numbe
   )
 }
 
-/** Who styled it and who lent what, under a runway card. */
+/** Who styled it, who lent what, and which pieces are off a wishlist, under a runway card. */
 function Credits({ card }: { card: EntryCard }) {
   const lent = card.pieces.filter((p) => p.owner && p.owner_id !== card.user_id)
-  if (!card.styled_by && lent.length === 0) return null
+  const wish = wishPieces(card)
+  if (!card.styled_by && lent.length === 0 && wish.length === 0) return null
   return (
     <div className="mt-1 text-center text-xs">
       {card.styled_by && <div className="font-bold text-poppy">✨ styled by {card.styled_by}</div>}
       {lent.length > 0 && <div className="text-mute">borrowed from {[...new Set(lent.map((p) => p.owner))].join(' & ')}</div>}
+      <WishBadges card={card} />
+    </div>
+  )
+}
+
+/** A ✨ wishlist badge for each piece of the look that came off a wishlist. */
+function WishBadges({ card }: { card: EntryCard }) {
+  const wish = wishPieces(card)
+  if (wish.length === 0) return null
+  return (
+    <div className="mt-1 flex flex-wrap justify-center gap-1" data-testid="wish-badges">
+      {wish.map((p) => <span key={p.id} className="rounded-full bg-butter px-2 py-0.5 text-[11px] font-bold text-ink">✨ wishlist · {p.name || CATEGORY_LABEL[p.category]}</span>)}
+    </div>
+  )
+}
+
+/**
+ * The designer's backstage note on a runway look: built from the card's
+ * pieces (name, category, colours, pattern), the entrant's name and the
+ * round's theme. Pure and local, so every phone reads the same words.
+ */
+function DesignerNote({ card, theme, className }: { card: EntryCard; theme: string | null; className?: string }) {
+  const note = useMemo(() => (card.pieces.length ? lookNote(card.pieces, card.display_name || undefined, theme ?? undefined) : ''), [card, theme])
+  if (!note) return null
+  return (
+    <div className={'mt-3 rounded-2xl bg-sage/10 p-3 text-left ring-1 ring-sage/20 ' + (className ?? '')} data-testid="designer-note">
+      <div className="text-xs font-extrabold text-sage">✂️ Designer’s notes</div>
+      <p className="mt-0.5 text-sm leading-snug text-ink/80">{note}</p>
     </div>
   )
 }
@@ -547,6 +606,8 @@ function Podium({ round, cards, results, userId, confetti, title, children }: { 
       {shown && (
         <AvatarStage card={shown.card} mode="podium" podium={Math.min(3, shown.place) as 1 | 2 | 3} className="mx-auto mt-3 h-64 w-full max-w-[300px]" fallback={<CardStack card={shown.card} className="h-full w-full" />} />
       )}
+      {shown && <WishBadges card={shown.card} />}
+      {shown && <DesignerNote card={shown.card} theme={round.theme} />}
 
       <div className="mt-3 flex items-end justify-center gap-3">
         {blocks.map((b) => (

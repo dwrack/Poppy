@@ -1,12 +1,14 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { supabase, BUCKET, uniqueTopic } from './supabase'
-import type { Category, Colour } from '../types'
+import { closetOf, type Category, type ClosetKind, type Colour } from '../types'
 
 export interface Group { id: string; name: string; owner_id: string; tz?: string | null }
 export interface Member { group_id: string; user_id: string; display_name: string; emoji: string; role: 'owner' | 'member' }
 export interface FriendItem {
   id: string; user_id: string; name: string; category: Category; colours: Colour[]; pattern: string
   warmth: number; formality: number; status: string; notes: string | null; cutout_path: string; cutoutUrl?: string
+  /** v10: friend_items only returns 'mine'; kept so the client can filter too. */
+  closet?: ClosetKind | null
 }
 export type BorrowStatus = 'requested' | 'approved' | 'declined' | 'out' | 'returned' | 'cancelled'
 export interface Borrow {
@@ -82,7 +84,8 @@ export async function updateMyCard(groupId: string, userId: string, patch: Parti
 export async function loadFriendCloset(memberId: string): Promise<FriendItem[]> {
   const { data, error } = await supabase.rpc('friend_items', { member: memberId })
   if (error || !data) return []
-  const items = data as FriendItem[]
+  // Friends never see a wishlist. The server already leaves wish pieces out (v10); this covers an older server.
+  const items = (data as FriendItem[]).filter((i) => closetOf(i) === 'mine')
   if (items.length) {
     const byPath = await signPaths(items.map((i) => i.cutout_path))
     for (const i of items) i.cutoutUrl = byPath.get(i.cutout_path)

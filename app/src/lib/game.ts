@@ -4,7 +4,7 @@ import { signPaths } from './friends'
 import { signPhotos } from './photos'
 import { downscale } from './cutout'
 import { loadLooks } from './avatarSync'
-import { DEFAULT_LOOK, garmentOf, slotOf, type AvatarLook, type Category, type Colour, type Pattern, type Outfit as AvatarOutfit } from '../types'
+import { DEFAULT_LOOK, garmentOf, isWish, slotOf, type AvatarLook, type Category, type ClosetKind, type Colour, type Pattern, type Outfit as AvatarOutfit } from '../types'
 
 /* ---------- Types ---------- */
 
@@ -18,8 +18,11 @@ export interface Round {
   /** The pack the round's theme came from. Null before the drop (no theme yet) and for step 1 rounds. */
   pack: ThemePack | null
 }
-/** colours and pattern arrive once v4b-avatar-runway.sql is pasted; before that the avatar wears grey */
-export interface Piece { id: string; name: string; category: Category; cutout_path: string; url?: string; owner_id: string; owner: string; colours?: Colour[]; pattern?: Pattern }
+/**
+ * colours and pattern arrive once v4b-avatar-runway.sql is pasted; before that the avatar wears grey.
+ * closet arrives with v10-wishlist.sql: 'wish' is a wishlist piece (entered for fun, badged, never in a photo).
+ */
+export interface Piece { id: string; name: string; category: Category; cutout_path: string; url?: string; owner_id: string; owner: string; colours?: Colour[]; pattern?: Pattern; closet?: ClosetKind | null }
 export interface Outfit { items: string[]; borrowed?: string[] }
 export interface EntryCard {
   entry_id: string; user_id: string; display_name: string; emoji: string; outfit: Outfit
@@ -177,7 +180,11 @@ export async function submitEntry(roundId: string, userId: string, itemIds: stri
     { round_id: roundId, user_id: userId, outfit: { items: itemIds, borrowed }, styled_look_id: null, submitted_at: new Date().toISOString() },
     { onConflict: 'round_id,user_id' },
   ).select('id').maybeSingle()
-  if (error) throw new Error(error.message.replace(/^.*?: /, ''))
+  if (error) {
+    // outfit_allowed() refuses a piece the server has no copy of yet (still saving, or offline).
+    if (/row-level security/i.test(error.message)) throw new Error('One of these pieces is still saving. Try again in a minute.')
+    throw new Error(error.message.replace(/^.*?: /, ''))
+  }
   return (data as { id: string } | null)?.id
 }
 
@@ -243,6 +250,11 @@ export async function loadRunway(roundId: string): Promise<EntryCard[]> {
     if (c.photo_path) c.photoUrl = byPhoto.get(c.photo_path)
   }
   return cards
+}
+
+/** The wishlist pieces in a runway look (badged ✨ wishlist on the reveal). */
+export function wishPieces(card: Pick<EntryCard, 'pieces'>): Piece[] {
+  return card.pieces.filter(isWish)
 }
 
 /** The avatar's outfit from a card's pieces: first piece per slot wins, a dress outranks top and bottom on the rig. */

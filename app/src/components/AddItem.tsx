@@ -3,17 +3,24 @@ import { saveItem } from '../lib/sync'
 import { downscale, makeCutout, warmUp } from '../lib/cutout'
 import { describePhoto } from '../lib/ai'
 import { useObjectUrl } from '../lib/useObjectUrl'
-import { CATEGORIES, CATEGORY_LABEL, COLOURS, PATTERNS, SEASONS, type Category, type Colour, type Item, type Pattern, type Season } from '../types'
+import { CATEGORIES, CATEGORY_LABEL, COLOURS, PATTERNS, SEASONS, type Category, type ClosetKind, type Colour, type Item, type Pattern, type Season, type ShopLink } from '../types'
 import { Chip, Scale } from './Chip'
 
-type Draft = Omit<Item, 'id' | 'photo' | 'cutout' | 'createdAt' | 'updatedAt' | 'synced'>
+export type Draft = Omit<Item, 'id' | 'photo' | 'cutout' | 'createdAt' | 'updatedAt' | 'synced'>
+
+/**
+ * A head start for a new piece (a link import). With a photo it runs the usual cutout; auto-tag is
+ * skipped when the draft already says what the piece is (draft.category set), since the import described it.
+ */
+export interface AddPrefill { photo?: Blob; draft?: Partial<Draft>; links?: ShopLink[]; searchQuery?: string }
 
 const blank = (): Draft => ({
   name: '', category: 'top', colours: [], pattern: 'solid', warmth: 3, formality: 3,
   seasons: ['spring', 'summer', 'fall', 'winter'], status: 'active', favourite: false, tucked: false,
 })
 
-export function AddItem({ onDone }: { onDone: () => void }) {
+export function AddItem({ onDone, closet = 'mine', prefill }: { onDone: () => void; closet?: ClosetKind; prefill?: AddPrefill }) {
+  const wish = closet === 'wish'
   const fileRef = useRef<HTMLInputElement>(null)
   const tagRef = useRef<HTMLInputElement>(null)
   const [tagPhoto, setTagPhoto] = useState<Blob>()
@@ -21,15 +28,24 @@ export function AddItem({ onDone }: { onDone: () => void }) {
   const [cutout, setCutout] = useState<Blob>()
   const [progress, setProgress] = useState<number | null>(null)
   const [error, setError] = useState<string>()
-  const [draft, setDraft] = useState<Draft>(blank)
+  const [draft, setDraft] = useState<Draft>(() => ({ ...blank(), ...defined(prefill?.draft) }))
   const [saving, setSaving] = useState(false)
-  const [thinking, setThinking] = useState<'idle' | 'busy' | 'done' | 'failed'>('idle')
-  const [searchQuery, setSearchQuery] = useState<string>()
+  const [thinking, setThinking] = useState<'idle' | 'busy' | 'done' | 'failed'>(prefill?.draft?.category ? 'done' : 'idle')
+  const [searchQuery, setSearchQuery] = useState<string | undefined>(prefill?.searchQuery)
+  const [links] = useState<ShopLink[]>(() => prefill?.links ?? [])
   const preview = useObjectUrl(cutout ?? photo)
 
   useEffect(() => { warmUp() }, [])
 
-  async function onPick(file?: File) {
+  // A photo handed in (link import): cut it out like a snapped one. Once per mount.
+  const started = useRef(false)
+  useEffect(() => {
+    if (!prefill?.photo || started.current) return
+    started.current = true
+    void onPick(prefill.photo, !!prefill.draft?.category)
+  }, []) // eslint-disable-line react-hooks/exhaustive-deps
+
+  async function onPick(file?: Blob, described = false) {
     if (!file) return
     setError(undefined)
     setCutout(undefined)
@@ -39,7 +55,7 @@ export function AddItem({ onDone }: { onDone: () => void }) {
     try {
       const out = await makeCutout(small, setProgress)
       setCutout(out)
-      void autoTag(out)
+      if (!described) void autoTag(out)
     } catch (e) {
       console.error(e)
       setError("Couldn't cut out the background. The photo is saved as is; you can retry later.")
@@ -83,7 +99,11 @@ export function AddItem({ onDone }: { onDone: () => void }) {
     if (!photo) return
     setSaving(true)
     const now = Date.now()
-    await saveItem({ ...draft, notes: [draft.notes, searchQuery ? `search: ${searchQuery}` : ''].filter(Boolean).join(' · ') || undefined, id: crypto.randomUUID(), photo, cutout: cutout ?? photo, createdAt: now, updatedAt: now, synced: 0 })
+    await saveItem({
+      ...draft, notes: [draft.notes, searchQuery ? `search: ${searchQuery}` : ''].filter(Boolean).join(' · ') || undefined,
+      ...(wish ? { closet: 'wish' as const, links: links.length ? links : draft.links } : {}),
+      id: crypto.randomUUID(), photo, cutout: cutout ?? photo, createdAt: now, updatedAt: now, synced: 0,
+    })
     setSaving(false)
     onDone()
   }
@@ -95,7 +115,7 @@ export function AddItem({ onDone }: { onDone: () => void }) {
     <div className="flex min-h-full flex-col">
       <header className="safe-top sticky top-0 z-10 flex items-center justify-between bg-cream/90 px-4 py-3 backdrop-blur">
         <button onClick={onDone} className="text-base font-semibold text-mute">Cancel</button>
-        <h1 className="text-lg font-extrabold">New piece</h1>
+        <h1 className="text-lg font-extrabold">{wish ? '✨ New wish' : 'New piece'}</h1>
         <button
           onClick={save}
           disabled={!photo || saving || progress !== null}
@@ -110,7 +130,8 @@ export function AddItem({ onDone }: { onDone: () => void }) {
           ref={fileRef}
           type="file"
           accept="image/*"
-          capture="environment"
+          // Wish mode leaves the camera optional so she can pick a screenshot from her photos.
+          capture={wish ? undefined : 'environment'}
           className="hidden"
           onChange={(e) => onPick(e.target.files?.[0])}
         />
@@ -124,8 +145,8 @@ export function AddItem({ onDone }: { onDone: () => void }) {
           ) : (
             <div className="flex h-full flex-col items-center justify-center gap-2 text-mute">
               <span className="text-5xl">📸</span>
-              <span className="font-semibold">Snap it laid flat</span>
-              <span className="text-xs">plain background, good light</span>
+              <span className="font-semibold">{wish ? 'Snap or screenshot it' : 'Snap it laid flat'}</span>
+              <span className="text-xs">{wish ? 'a shop photo or screenshot works great' : 'plain background, good light'}</span>
             </div>
           )}
           {progress !== null && (
@@ -136,9 +157,12 @@ export function AddItem({ onDone }: { onDone: () => void }) {
         </button>
         {error && <p className="text-center text-sm text-poppy">{error}</p>}
         {photo && progress === null && (
-          <p className="text-center text-sm text-mute">Tap the photo to retake.</p>
+          <p className="text-center text-sm text-mute">{wish ? 'Tap the photo to pick another.' : 'Tap the photo to retake.'}</p>
         )}
-        {photo && (
+        {wish && links.length > 0 && (
+          <p className="text-center text-sm font-semibold">🔗 {[links[0].store, links[0].price].filter(Boolean).join(' · ') || 'Link saved'}</p>
+        )}
+        {photo && !wish && (
           <>
             <input ref={tagRef} type="file" accept="image/*" capture="environment" className="hidden" onChange={(e) => onTag(e.target.files?.[0])} />
             <button type="button" onClick={() => tagRef.current?.click()} className={'mx-auto flex items-center gap-2 rounded-full px-4 py-2 text-sm font-bold ring-1 ring-black/10 ' + (tagPhoto ? 'bg-sage/15 text-sage' : 'bg-white')}>
@@ -242,13 +266,18 @@ export function AddItem({ onDone }: { onDone: () => void }) {
           <input
             value={draft.notes ?? ''}
             onChange={(e) => set({ notes: e.target.value })}
-            placeholder="runs small, itchy, gift from mum…"
+            placeholder={wish ? 'for the winter formal, ask for my birthday…' : 'runs small, itchy, gift from mum…'}
             className="w-full rounded-2xl bg-white px-4 py-3 ring-1 ring-black/10 outline-none focus:ring-peach"
           />
         </section>
       </main>
     </div>
   )
+}
+
+/** Only the keys that have a value, so a prefill never blanks out a default (seasons stays a list). */
+function defined<T extends object>(o?: T): Partial<T> {
+  return o ? (Object.fromEntries(Object.entries(o).filter(([, v]) => v !== undefined && v !== null)) as Partial<T>) : {}
 }
 
 function Label({ children }: { children: React.ReactNode }) {

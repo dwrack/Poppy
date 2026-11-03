@@ -5,6 +5,7 @@ Goal: Penny gets her own account with her own friends squad, and everyone shares
 ## 1. Put it live (once)
 - Tell Claude "ship the family branch". Claude merges it and the app updates in about 2 minutes.
 - Supabase dashboard (signed in with Poppy's Gmail) > SQL Editor > New query. If v3 to v8 are not in yet, paste those first (order in `V3-PASTE-ORDER.md`). Then paste all of `supabase/v9-family.sql`, press Run. It should say "Success". This keeps each squad's stars and borrowing separate.
+- Then paste all of `supabase/v10-wishlist.sql` the same way (it goes last, after v9). It turns on the wishlist closet.
 
 ## 2. Poppy makes the family squad
 - Squad tab > scroll down > "Start another squad". Name it Rack Family, pick an icon, tap Create squad.

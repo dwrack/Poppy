@@ -9,7 +9,7 @@ cd "$(dirname "$0")/../.."
 C=${POPPY_PG:-poppy-pg}
 PORT=${POPPY_PG_PORT:-55432}
 PSQL="docker exec -i $C psql -q -v ON_ERROR_STOP=1 -U postgres -d postgres"
-FILES=(schema.sql v2-friends.sql v2-smart.sql v3-game.sql v4-avatar.sql v5-game-loop.sql v6-borrow-style.sql v4b-avatar-runway.sql v7-seasons.sql v8-photoreal.sql v9-family.sql)
+FILES=(schema.sql v2-friends.sql v2-smart.sql v3-game.sql v4-avatar.sql v5-game-loop.sql v6-borrow-style.sql v4b-avatar-runway.sql v7-seasons.sql v8-photoreal.sql v9-family.sql v10-wishlist.sql)
 
 docker rm -f $C >/dev/null 2>&1 || true
 docker run -d --name $C -e POSTGRES_PASSWORD=pw -p $PORT:5432 postgres:16 >/dev/null
